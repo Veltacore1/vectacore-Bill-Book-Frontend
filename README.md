@@ -11,3 +11,18 @@ npm run build
 ```
 
 The app expects the backend API URL from `VITE_API_URL`. In local development it defaults to `http://127.0.0.1:8001/api/v1`.
+
+## CI/CD
+
+GitHub Actions are included:
+
+- `Frontend CI`: installs dependencies, runs ESLint, builds the Vite app, and uploads the `dist` artifact.
+- `Frontend Container CD`: builds and publishes a production Nginx image to GitHub Container Registry on `main`, tags, or manual dispatch.
+
+Set the repository variable `VITE_API_URL` in GitHub before production builds so the static bundle points to the deployed backend API.
+
+Published image:
+
+```text
+ghcr.io/veltacore1/vectacore-bill-book-frontend
+```
