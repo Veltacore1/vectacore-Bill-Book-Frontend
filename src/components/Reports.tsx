@@ -293,13 +293,13 @@ export default function Reports({ onNavigate }: ReportsProps) {
   const [isSharingReport, setIsSharingReport] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | "print" | null>(null);
   const [reportPrintPreview, setReportPrintPreview] = useState<{ title: string; html: string } | null>(null);
-  const currentFilters: ReportsQuery = {
+  const currentFilters = useMemo<ReportsQuery>(() => ({
     dateRange,
     partyId: selectedPartyId || undefined,
     itemId: selectedItemId || undefined,
     from: dateRange === "Custom" ? customFrom : undefined,
     to: dateRange === "Custom" ? customTo : undefined
-  };
+  }), [customFrom, customTo, dateRange, selectedItemId, selectedPartyId]);
 
   useEffect(() => {
     let mounted = true;
@@ -330,7 +330,7 @@ export default function Reports({ onNavigate }: ReportsProps) {
     return () => {
       mounted = false;
     };
-  }, [customFrom, customTo, dateRange, selectedItemId, selectedPartyId]);
+  }, [currentFilters]);
 
   useEffect(() => {
     if (reports.length === 0) return;

@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import {
   BarChart3,
   Box,
@@ -10,6 +9,7 @@ import {
   FileText,
   Landmark,
   LayoutDashboard,
+  LogOut,
   Megaphone,
   Monitor,
   Package,
@@ -34,6 +34,7 @@ interface SidebarProps {
   businessPhone: string;
   modulePermissions?: ModulePermissions;
   onCreateInvoice: () => void;
+  onLogout: () => void;
 }
 
 type NavItem = {
@@ -91,13 +92,23 @@ const placeholderTabs = [
   "purchase-orders"
 ];
 
+const initialsForBusiness = (name: string) =>
+  (name || "VB")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(part => part[0])
+    .join("")
+    .toUpperCase();
+
 export default function Sidebar({
   activeTab,
   setActiveTab,
   businessName,
   businessPhone,
   modulePermissions,
-  onCreateInvoice
+  onCreateInvoice,
+  onLogout
 }: SidebarProps) {
   const permissionSet = modulePermissions && Object.keys(modulePermissions).length ? modulePermissions : null;
 
@@ -131,30 +142,12 @@ export default function Sidebar({
     { id: "sms-marketing", label: "SMS Marketing", icon: Megaphone, moduleKey: "business_tools" }
   ];
 
-  const visibleSalesItems = useMemo(
-    () => salesItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view")),
-    [permissionSet]
-  );
-  const visiblePurchaseItems = useMemo(
-    () => purchaseItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view")),
-    [permissionSet]
-  );
-  const visiblePartyItems = useMemo(
-    () => partyItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view")),
-    [permissionSet]
-  );
-  const visibleNavItems = useMemo(
-    () => navItems.filter(item => hasAnyView([item.moduleKey, ...(item.alternateModuleKeys ?? [])])),
-    [permissionSet]
-  );
-  const visibleAccountingItems = useMemo(
-    () => accountingItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view")),
-    [permissionSet]
-  );
-  const visibleBusinessItems = useMemo(
-    () => businessItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view")),
-    [permissionSet]
-  );
+  const visibleSalesItems = salesItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view"));
+  const visiblePurchaseItems = purchaseItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view"));
+  const visiblePartyItems = partyItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view"));
+  const visibleNavItems = navItems.filter(item => hasAnyView([item.moduleKey, ...(item.alternateModuleKeys ?? [])]));
+  const visibleAccountingItems = accountingItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view"));
+  const visibleBusinessItems = businessItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view"));
   const canViewSettings = hasPermission("settings");
 
   const isPartiesActive = activeTab === "parties" || activeTab === "shared-ledger";
@@ -266,7 +259,7 @@ export default function Sidebar({
     <aside className="sidebar" aria-label="Main navigation">
       <div className="sidebar-brand">
         <div className="sidebar-brand-logo" aria-hidden="true">
-          CSM
+          {initialsForBusiness(businessName)}
         </div>
         <div>
           <div className="sidebar-brand-name">{businessName}</div>
@@ -325,6 +318,13 @@ export default function Sidebar({
           </span>
         </button>
       )}
+
+      <button className="sidebar-nav-item sidebar-logout" onClick={onLogout} type="button">
+        <span className="nav-left">
+          <LogOut className="nav-icon" size={18} />
+          <span>Logout</span>
+        </span>
+      </button>
 
       <div className="sidebar-footer">
         <span>

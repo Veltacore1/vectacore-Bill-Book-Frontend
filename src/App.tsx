@@ -16,7 +16,7 @@ import Settings from "./components/Settings";
 import GodownModule from "./components/Godown";
 import TenantOnboarding from "./components/TenantOnboarding";
 import PublicSharedLedger from "./components/PublicSharedLedger";
-import { createItem, createParty, createSalesInvoice, getWorkspace } from "./api";
+import { clearTenantSession, createItem, createParty, createSalesInvoice, getWorkspace } from "./api";
 import type {
   AccountingData,
   Business,
@@ -137,7 +137,7 @@ export default function App() {
   const [publicSharedLedgerToken, setPublicSharedLedgerToken] = useState(sharedLedgerTokenFromPath);
   const [showOnboarding, setShowOnboarding] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return window.location.pathname === "/register" || params.has("register");
+    return window.location.pathname === "/register" || window.location.pathname === "/login" || params.has("register");
   });
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [business, setBusiness] = useState<Business>(initialBusiness);
@@ -451,6 +451,33 @@ export default function App() {
     await loadTenantWorkspace();
   };
 
+  const handleLogout = () => {
+    clearTenantSession();
+    setBusiness(initialBusiness);
+    setParties(initialParties);
+    setItems(initialItems);
+    setGodowns(initialGodowns);
+    setStaff(initialStaff);
+    setInvoices([]);
+    setTransactions([]);
+    setSalesRows(initialSalesRows);
+    setPurchaseRows(initialPurchaseRows);
+    setAccounting(initialAccounting);
+    setOnlineOrders([]);
+    setSmsMarketing(initialSmsMarketing);
+    setSettingsData(initialSettingsData);
+    setDashboardData(initialDashboard);
+    setUsers([]);
+    setModulePermissions({});
+    setCounts({ parties: 0, items: 0, salesInvoices: 0, purchaseInvoices: 0, paymentsIn: 0, paymentsOut: 0 });
+    setTargetSalesInvoiceId(null);
+    setApiError("");
+    setIsLoadingTenant(false);
+    setActiveTab("dashboard");
+    setShowOnboarding(true);
+    window.history.replaceState(null, "", "/login");
+  };
+
   if (publicSharedLedgerToken) {
     return (
       <PublicSharedLedger
@@ -465,7 +492,12 @@ export default function App() {
   }
 
   if (showOnboarding) {
-    return <TenantOnboarding onReady={handleTenantReady} />;
+    return (
+      <TenantOnboarding
+        initialMode={window.location.pathname === "/register" ? "register" : "login"}
+        onReady={handleTenantReady}
+      />
+    );
   }
 
   return (
@@ -478,6 +510,7 @@ export default function App() {
         businessPhone={business.phone}
         modulePermissions={modulePermissions}
         onCreateInvoice={handleCreateInvoiceShortcut}
+        onLogout={handleLogout}
       />
 
       {/* Main Workspace Frame */}
@@ -620,6 +653,7 @@ export default function App() {
               onAttendanceChange={handleAttendanceChange}
               onWorkspaceRefresh={loadTenantWorkspace}
               setActiveTab={navigateToTab}
+              onLogout={handleLogout}
             />
           )}
 
@@ -643,6 +677,7 @@ export default function App() {
               onWorkspaceRefresh={loadTenantWorkspace}
               onNavigate={navigateToTab}
               onBack={() => navigateToTab("dashboard")}
+              onLogout={handleLogout}
             />
           )}
         </div>

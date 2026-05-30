@@ -67,6 +67,7 @@ interface SettingsProps {
   onWorkspaceRefresh: () => Promise<unknown>;
   onNavigate: (tab: string) => void;
   onBack: () => void;
+  onLogout: () => void;
 }
 
 type SettingsView =
@@ -252,7 +253,8 @@ export default function Settings({
   invoices,
   onWorkspaceRefresh,
   onNavigate,
-  onBack
+  onBack,
+  onLogout
 }: SettingsProps) {
   const source = useMemo(() => settings ?? defaultSettings(business), [business, settings]);
   const modulePermissions = useMemo(() => roleModulePermissions(source.account.role), [source.account.role]);
@@ -666,13 +668,13 @@ export default function Settings({
               {badge && <b>{badge}</b>}
             </button>
           ))}
-          <button onClick={() => onNavigate("dashboard")} type="button">Logout</button>
+          <button onClick={onLogout} type="button">Logout</button>
         </nav>
         <div className="settings-tool-footer">
           <span>Tenant: {business.id || "new"}</span>
           <span><Shield size={13} /> 100% Secure</span>
           <span>Postgres backed</span>
-          <strong>myBillBook</strong>
+          <strong>VastraBook</strong>
         </div>
       </aside>
 

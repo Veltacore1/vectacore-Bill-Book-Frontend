@@ -64,8 +64,28 @@ async function getAccessToken(forceRefresh = false) {
     if (cached) return cached;
   }
 
+  const refresh = localStorage.getItem(REFRESH_KEY);
+  if (refresh) {
+    try {
+      const response = await fetch(`${API_BASE}/auth/token/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh })
+      });
+      const data = await readJson<{ access: string; refresh?: string }>(response);
+      localStorage.setItem(ACCESS_KEY, data.access);
+      if (data.refresh) {
+        localStorage.setItem(REFRESH_KEY, data.refresh);
+      }
+      return data.access;
+    } catch {
+      clearTenantSession();
+      throw new Error("Your session expired. Login again to continue.");
+    }
+  }
+
   if (!DEMO_SESSION_ENABLED) {
-    throw new Error("No tenant session. Register a textile business before opening the workspace.");
+    throw new Error("No tenant session. Login or register a textile business before opening the workspace.");
   }
 
   const response = await fetch(`${API_BASE}/auth/demo-session`, {
@@ -79,9 +99,22 @@ async function getAccessToken(forceRefresh = false) {
   return data.tokens.access;
 }
 
+async function recoverAccessTokenAfterUnauthorized() {
+  localStorage.removeItem(ACCESS_KEY);
+  if (!localStorage.getItem(REFRESH_KEY)) {
+    clearTenantSession();
+    throw new Error("Your session expired. Login again to continue.");
+  }
+  return getAccessToken(true);
+}
+
 export function clearTenantSession() {
   localStorage.removeItem(ACCESS_KEY);
   localStorage.removeItem(REFRESH_KEY);
+}
+
+export function hasTenantSession() {
+  return Boolean(localStorage.getItem(ACCESS_KEY) || localStorage.getItem(REFRESH_KEY));
 }
 
 export function isDemoSessionAvailable() {
@@ -105,8 +138,8 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): 
   });
 
   if (response.status === 401 && retry) {
-    localStorage.removeItem(ACCESS_KEY);
-    await getAccessToken(true);
+    const refreshedToken = await recoverAccessTokenAfterUnauthorized();
+    localStorage.setItem(ACCESS_KEY, refreshedToken);
     return apiFetch<T>(path, init, false);
   }
 
@@ -135,8 +168,8 @@ async function apiText(path: string, init: RequestInit = {}, retry = true): Prom
   });
 
   if (response.status === 401 && retry) {
-    localStorage.removeItem(ACCESS_KEY);
-    await getAccessToken(true);
+    const refreshedToken = await recoverAccessTokenAfterUnauthorized();
+    localStorage.setItem(ACCESS_KEY, refreshedToken);
     return apiText(path, init, false);
   }
 
@@ -158,8 +191,8 @@ async function apiBlob(path: string, init: RequestInit = {}, retry = true): Prom
   });
 
   if (response.status === 401 && retry) {
-    localStorage.removeItem(ACCESS_KEY);
-    await getAccessToken(true);
+    const refreshedToken = await recoverAccessTokenAfterUnauthorized();
+    localStorage.setItem(ACCESS_KEY, refreshedToken);
     return apiBlob(path, init, false);
   }
 
@@ -178,6 +211,34 @@ async function apiBlob(path: string, init: RequestInit = {}, retry = true): Prom
 
 export async function getWorkspace() {
   return apiFetch<WorkspaceData>("/auth/workspace");
+}
+
+export async function sendLoginOtp(input: { mobile: string }) {
+  const response = await fetch(`${API_BASE}/auth/send-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mobile: input.mobile })
+  });
+  return readJson<{
+    provider?: string;
+    expiresInMinutes?: number;
+    otp_simulated?: string;
+  }>(response);
+}
+
+export async function verifyLoginOtp(input: { mobile: string; otp: string }) {
+  const response = await fetch(`${API_BASE}/auth/verify-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mobile: input.mobile,
+      otp: input.otp
+    })
+  });
+  const data = await readJson<{ tokens: { access: string; refresh: string }; business?: Business }>(response);
+  localStorage.setItem(ACCESS_KEY, data.tokens.access);
+  localStorage.setItem(REFRESH_KEY, data.tokens.refresh);
+  return data;
 }
 
 export async function registerTextileTenant(input: {

@@ -79,6 +79,7 @@ interface BusinessToolsProps {
   onAttendanceChange: (staffId: string, date: string, status: "present" | "absent" | "half_day") => void;
   onWorkspaceRefresh: () => Promise<void>;
   setActiveTab: (tab: string) => void;
+  onLogout: () => void;
 }
 
 const RUPEE = "\u20b9";
@@ -136,7 +137,8 @@ export default function BusinessTools({
   counts,
   onAttendanceChange,
   onWorkspaceRefresh,
-  setActiveTab
+  setActiveTab,
+  onLogout
 }: BusinessToolsProps) {
   const modulePermissions = useMemo(
     () => workspaceModulePermissions && Object.keys(workspaceModulePermissions).length
@@ -155,6 +157,7 @@ export default function BusinessTools({
         onBack={() => setActiveTab("dashboard")}
         onWorkspaceRefresh={onWorkspaceRefresh}
         onNavigate={setActiveTab}
+        onLogout={onLogout}
       />
     );
   }
@@ -819,7 +822,8 @@ function ManageUsersView({
   modulePermissions,
   onBack,
   onWorkspaceRefresh,
-  onNavigate
+  onNavigate,
+  onLogout
 }: {
   business: BusinessToolsProps["business"];
   users: BusinessToolsProps["users"];
@@ -828,6 +832,7 @@ function ManageUsersView({
   onBack: () => void;
   onWorkspaceRefresh: () => Promise<void>;
   onNavigate: (tab: string) => void;
+  onLogout: () => void;
 }) {
   const usersPermission = getModulePermission(modulePermissions, "users");
   const settingsPermission = getModulePermission(modulePermissions, "settings");
@@ -997,13 +1002,13 @@ function ManageUsersView({
               {badge && <b>{badge}</b>}
             </button>
           ))}
-          <button type="button">Logout</button>
+          <button onClick={onLogout} type="button">Logout</button>
         </nav>
         <div className="settings-tool-footer">
           <span>Tenant: {business.id || "new"}</span>
           <span><Shield size={13} /> 100% Secure</span>
           <span>Postgres backed</span>
-          <strong>myBillBook</strong>
+          <strong>VastraBook</strong>
         </div>
       </aside>
 

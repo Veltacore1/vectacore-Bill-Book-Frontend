@@ -1809,9 +1809,45 @@ body {
 
 .tenant-register-card {
   display: grid;
+  align-content: start;
   gap: 14px;
   padding: 24px;
   border-radius: 8px;
+}
+
+.tenant-auth-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.tenant-auth-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #526079;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.tenant-auth-tabs button.active {
+  color: #4338ca;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
+}
+
+.tenant-auth-form {
+  display: grid;
+  gap: 14px;
 }
 
 .tenant-register-card label {
@@ -1868,6 +1904,21 @@ body {
   background: #4f46e5;
 }
 
+.tenant-auth-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.tenant-auth-actions.with-resend {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.tenant-auth-actions .tenant-submit-btn {
+  width: 100%;
+}
+
 .tenant-submit-btn:disabled,
 .tenant-demo-btn:disabled {
   cursor: not-allowed;
@@ -1884,6 +1935,18 @@ body {
   font-size: 13px;
 }
 
+.tenant-onboarding-notice.success {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.tenant-onboarding-notice.info {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 @media (max-width: 860px) {
   .tenant-onboarding-page {
     padding: 16px;
@@ -1892,7 +1955,8 @@ body {
 
   .tenant-onboarding-panel,
   .tenant-form-row,
-  .tenant-proof-grid {
+  .tenant-proof-grid,
+  .tenant-auth-actions {
     grid-template-columns: 1fr;
   }
 
@@ -2108,6 +2172,17 @@ button {
 
 .sidebar-settings:hover {
   background: #253154;
+}
+
+.sidebar-logout {
+  border-radius: 0;
+  color: #fca5a5;
+  background: #111b2e;
+}
+
+.sidebar-logout:hover {
+  color: #ffffff;
+  background: #7f1d1d;
 }
 
 .sidebar-footer {

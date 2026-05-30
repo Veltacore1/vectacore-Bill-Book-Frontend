@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, FileText, RefreshCw } from "lucide-react";
 import { getSharedLedgerPortal } from "../api";
 import type { SharedLedgerPortalData } from "../types";
@@ -20,7 +20,7 @@ export default function PublicSharedLedger({ token, onExit }: PublicSharedLedger
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
-  const loadLedger = async () => {
+  const loadLedger = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
@@ -31,11 +31,11 @@ export default function PublicSharedLedger({ token, onExit }: PublicSharedLedger
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     void loadLedger();
-  }, [token]);
+  }, [loadLedger]);
 
   return (
     <div className="public-ledger-screen">

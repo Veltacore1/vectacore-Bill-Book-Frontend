@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowLeftRight,
   Boxes,
@@ -94,7 +94,7 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
     }));
   }, [godowns, items]);
 
-  const loadWarehouseSummary = async () => {
+  const loadWarehouseSummary = useCallback(async () => {
     try {
       const rows = await getGodownSummary();
       setWarehouseList(rows);
@@ -103,9 +103,9 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
       setWarehouseList(godowns);
       setErrorMessage(error instanceof Error ? error.message : "Godown summary could not be loaded");
     }
-  };
+  }, [godowns]);
 
-  const loadMovements = async () => {
+  const loadMovements = useCallback(async () => {
     setIsLoadingLedger(true);
     try {
       const [movementRows, transferHistory] = await Promise.all([
@@ -120,12 +120,12 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
     } finally {
       setIsLoadingLedger(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadWarehouseSummary();
-    loadMovements();
-  }, []);
+    void loadWarehouseSummary();
+    void loadMovements();
+  }, [loadMovements, loadWarehouseSummary]);
 
   const stockRows = useMemo<StockRow[]>(() => {
     const allocationMap = new Map<string, Record<string, number>>();
@@ -157,13 +157,13 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
     });
   }, [items, movements]);
 
-  const isWithinDateFilter = (dateValue: string) => {
+  const isWithinDateFilter = useCallback((dateValue: string) => {
     if (dateFilter === "all" || !dateValue || dateValue === "-") return true;
     const parsed = new Date(dateValue);
     if (Number.isNaN(parsed.getTime())) return true;
     const ageMs = Date.now() - parsed.getTime();
     return ageMs <= Number(dateFilter) * 24 * 60 * 60 * 1000;
-  };
+  }, [dateFilter]);
 
   const transfers = useMemo(() => {
     return transferRows.filter(transfer => {
@@ -181,7 +181,7 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
 
       return matchesGodown && matchesSearch && isWithinDateFilter(transfer.date);
     });
-  }, [dateFilter, searchQuery, selectedGodownId, transferRows]);
+  }, [isWithinDateFilter, searchQuery, selectedGodownId, transferRows]);
 
   const selectedGodown = warehouseList.find(godown => godown.id === selectedGodownId) ?? warehouseList[0];
   const filteredWarehouses = warehouseList.filter(godown => {
