@@ -16,12 +16,12 @@ import {
   X
 } from "lucide-react";
 import {
-  adjustItemStock,
   cancelPurchaseVoucher,
   createDebitNote,
   createPaymentOut,
   createPurchaseInvoice,
   createPurchaseOrder,
+  createPurchaseReturn,
   convertPurchaseOrder,
   getPurchasePaymentReceipt,
   getPurchasePaymentReceiptHtml,
@@ -334,23 +334,22 @@ export default function Purchases({ view, parties, items, initialRows: apiRows, 
           amount,
           notes: draft.notes
         });
+      } else if (view === "purchase-return") {
+        savedRow = await createPurchaseReturn({
+          partyId: party.id,
+          item: item!,
+          quantity: qty,
+          amount,
+          linkedVoucher: draft.linkedVoucher,
+          notes: draft.notes
+        });
       } else {
-        const isPurchaseReturn = view === "purchase-return";
         savedRow = await createDebitNote({
           partyId: party.id,
           amount,
           linkedVoucher: draft.linkedVoucher,
-          notes: draft.notes,
-          isPurchaseReturn
+          notes: draft.notes
         });
-        if (isPurchaseReturn && item) {
-          await adjustItemStock({
-            itemId: item.id,
-            quantity: qty,
-            movementType: "adjustment_out",
-            notes: `Purchase return ${savedRow.number}: ${draft.notes || draft.linkedVoucher || item.name}`
-          });
-        }
       }
 
       const rowWithSupplier = {
@@ -1126,7 +1125,7 @@ function renderCell(column: ColumnKey, row: PurchaseRow, view: PurchaseView) {
 function createDraft(view: PurchaseView, parties: Party[], items: Item[]): PurchaseDraft {
   const firstSupplier = parties.find(party => party.type === "supplier") || parties[0];
   const firstItem = items[0];
-  const amount = view === "payment-out" ? 6017 : firstItem?.purchasePrice || 0;
+  const amount = view === "payment-out" ? 0 : firstItem?.purchasePrice || 0;
 
   return {
     partyId: firstSupplier?.id || "",
@@ -1137,7 +1136,7 @@ function createDraft(view: PurchaseView, parties: Party[], items: Item[]): Purch
     dueIn: "-",
     expectedDate: futureDate(7),
     paymentMode: "Cash",
-    linkedVoucher: "102",
+    linkedVoucher: "",
     settlementInvoiceId: "",
     notes: ""
   };

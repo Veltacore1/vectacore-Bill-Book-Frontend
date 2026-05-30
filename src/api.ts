@@ -1716,7 +1716,7 @@ const salesVoucherPaths: Record<SalesVoucherLifecycleView, string> = {
 const purchaseVoucherPaths: Record<PurchaseVoucherLifecycleView, string> = {
   purchases: "/purchases/invoices",
   "payment-out": "/payments/payment-out",
-  "purchase-return": "/purchases/debit-notes",
+  "purchase-return": "/purchases/returns",
   "debit-note": "/purchases/debit-notes",
   "purchase-orders": "/purchases/orders"
 };
@@ -1994,18 +1994,14 @@ export async function createDebitNote(input: {
   amount: number;
   linkedVoucher: string;
   notes: string;
-  isPurchaseReturn?: boolean;
 }) {
-  const reason = input.isPurchaseReturn
-    ? `Purchase return: ${input.notes || input.linkedVoucher || "Returned goods"}`
-    : input.notes || "Created from purchase workspace";
   const data = await apiFetch<any>("/purchases/debit-notes/", {
     method: "POST",
     body: JSON.stringify({
       party: input.partyId,
       original_invoice: null,
       total_amount: roundMoney(input.amount),
-      reason
+      reason: input.notes || "Created from purchase workspace"
     })
   });
 
@@ -2015,7 +2011,7 @@ export async function createDebitNote(input: {
     number: data.debit_note_number,
     partyName: "",
     dueIn: "-",
-    itemName: input.isPurchaseReturn ? "Purchase Return" : "Debit Note",
+    itemName: "Debit Note",
     qty: 1,
     amount: Number(data.total_amount),
     paidAmount: 0,
@@ -2023,7 +2019,57 @@ export async function createDebitNote(input: {
     paymentMode: "-",
     linkedVoucher: input.linkedVoucher || "-",
     expectedDate: "-",
-    status: input.isPurchaseReturn ? "Pending Adjustment" : String(data.status || "unpaid").replace(/^\w/, char => char.toUpperCase()),
+    status: String(data.status || "unpaid").replace(/^\w/, char => char.toUpperCase()),
+    notes: data.reason || ""
+  } satisfies PurchaseRegisterRow;
+}
+
+export async function createPurchaseReturn(input: {
+  partyId: string;
+  item: Item;
+  quantity: number;
+  amount: number;
+  linkedVoucher: string;
+  notes: string;
+}) {
+  const line = purchaseLinePayload(input);
+  const data = await apiFetch<any>("/purchases/returns/", {
+    method: "POST",
+    body: JSON.stringify({
+      party: input.partyId,
+      original_invoice: null,
+      reference_number: input.linkedVoucher || null,
+      total_amount: roundMoney(line.amount),
+      reason: input.notes || "Created from purchase return workspace",
+      line_items: [{
+        item: line.item,
+        item_name: line.item_name,
+        quantity: line.quantity,
+        rate: line.rate,
+        gst_rate: line.gst_rate,
+        taxable_amount: line.taxable_amount,
+        amount: line.amount,
+        sort_order: line.sort_order
+      }]
+    })
+  });
+  const firstLine = data.line_items?.[0];
+
+  return {
+    id: data.id,
+    date: formatApiDate(data.return_date),
+    number: data.return_number,
+    partyName: String(data.party_name || "").toUpperCase(),
+    dueIn: "-",
+    itemName: firstLine?.item_name || input.item.name,
+    qty: Number(firstLine?.quantity ?? input.quantity),
+    amount: Number(data.total_amount),
+    paidAmount: 0,
+    settledAmount: 0,
+    paymentMode: "-",
+    linkedVoucher: data.original_invoice_number || data.reference_number || "-",
+    expectedDate: "-",
+    status: String(data.status || "adjusted").replace(/_/g, " ").replace(/^\w/, char => char.toUpperCase()),
     notes: data.reason || ""
   } satisfies PurchaseRegisterRow;
 }
@@ -2047,10 +2093,11 @@ export async function updatePurchaseVoucher(input: {
   if (input.view === "payment-out") {
     payload.notes = input.notes || "";
     payload.reference_number = input.linkedVoucher || null;
-  } else if (input.view === "purchase-return" || input.view === "debit-note") {
-    payload.reason = input.view === "purchase-return"
-      ? `Purchase return: ${input.notes || input.linkedVoucher || "Returned goods"}`
-      : input.notes || "";
+  } else if (input.view === "purchase-return") {
+    payload.reason = input.notes || "";
+    payload.reference_number = input.linkedVoucher || null;
+  } else if (input.view === "debit-note") {
+    payload.reason = input.notes || "";
   } else if (input.view === "purchases") {
     payload.notes = input.notes || "";
     payload.supplier_invoice_number = input.linkedVoucher || null;
