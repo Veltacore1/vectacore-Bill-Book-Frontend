@@ -2427,6 +2427,7 @@ function mapOnlineOrder(data: any): OnlineOrder {
     orderDate: formatApiDate(data.order_date || data.orderDate),
     customerName: data.customer_name || data.customerName || "",
     customerMobile: data.customer_mobile || data.customerMobile || "-",
+    customerEmail: data.customer_email || data.customerEmail || "",
     partyId: data.party || data.partyId || "",
     itemId: data.item || data.itemId || "",
     itemName: data.item_name || data.itemName || "",
@@ -2439,8 +2440,19 @@ function mapOnlineOrder(data: any): OnlineOrder {
     paymentStatus: data.payment_status || data.paymentStatus || "pending",
     dispatchStatus: data.dispatch_status || data.dispatchStatus || "new",
     source: data.source || "online_store",
+    shippingProvider: data.shipping_provider || data.shippingProvider || "",
+    shippingStatus: data.shipping_status || data.shippingStatus || "not_created",
+    shiprocketOrderId: data.shiprocket_order_id || data.shiprocketOrderId || "",
+    shiprocketShipmentId: data.shiprocket_shipment_id || data.shiprocketShipmentId || "",
+    shiprocketAwbCode: data.shiprocket_awb_code || data.shiprocketAwbCode || "",
+    shiprocketCourierName: data.shiprocket_courier_name || data.shiprocketCourierName || "",
+    shippingLabelUrl: data.shipping_label_url || data.shippingLabelUrl || "",
+    trackingUrl: data.tracking_url || data.trackingUrl || "",
     stockDeducted: Boolean(data.stock_deducted ?? data.stockDeducted),
     deliveryAddress: data.delivery_address || data.deliveryAddress || "",
+    deliveryCity: data.delivery_city || data.deliveryCity || "",
+    deliveryState: data.delivery_state || data.deliveryState || "",
+    deliveryPincode: data.delivery_pincode || data.deliveryPincode || "",
     notes: data.notes || "",
     currentStock: Number(data.current_stock ?? data.currentStock ?? 0)
   };
@@ -2451,7 +2463,11 @@ export async function createOnlineOrder(input: {
   itemId: string;
   customerName: string;
   customerMobile: string;
+  customerEmail?: string;
   deliveryAddress: string;
+  deliveryCity?: string;
+  deliveryState?: string;
+  deliveryPincode?: string;
   quantity: number;
   paymentStatus: "pending" | "paid" | "cod";
   source: "online_store" | "whatsapp" | "manual";
@@ -2464,7 +2480,11 @@ export async function createOnlineOrder(input: {
       item: input.itemId,
       customer_name: input.customerName,
       customer_mobile: input.customerMobile || null,
+      customer_email: input.customerEmail || null,
       delivery_address: input.deliveryAddress || null,
+      delivery_city: input.deliveryCity || null,
+      delivery_state: input.deliveryState || null,
+      delivery_pincode: input.deliveryPincode || null,
       quantity: input.quantity,
       payment_status: input.paymentStatus,
       source: input.source,
@@ -2472,6 +2492,22 @@ export async function createOnlineOrder(input: {
     })
   });
   return mapOnlineOrder(data);
+}
+
+export async function createOnlineOrderShipment(orderId: string) {
+  const data = await apiFetch<{ order: any }>(`/business-tools/online-orders/${orderId}/create_shipment/`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return mapOnlineOrder(data.order);
+}
+
+export async function syncOnlineOrderShipping(orderId: string) {
+  const data = await apiFetch<{ order: any }>(`/business-tools/online-orders/${orderId}/sync_shipping/`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return mapOnlineOrder(data.order);
 }
 
 export async function updateOnlineOrderStatus(input: {

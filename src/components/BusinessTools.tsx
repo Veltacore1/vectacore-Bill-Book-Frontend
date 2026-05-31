@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import {
   createOnlineOrder,
+  createOnlineOrderShipment,
   createSmsCampaign,
   createStaffMember,
   createTenantUser,
@@ -42,6 +43,7 @@ import {
   markStaffAttendance,
   markStaffPayrollPaid,
   syncSmsCampaignDelivery,
+  syncOnlineOrderShipping,
   updateBusinessSettings,
   updateOnlineOrderStatus
 } from "../api";
@@ -1191,6 +1193,7 @@ function OnlineOrdersView({
   const [showCreate, setShowCreate] = useState(false);
   const [notice, setNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [shippingBusyOrderId, setShippingBusyOrderId] = useState("");
   const customerParties = useMemo(() => parties.filter(party => party.type === "customer"), [parties]);
   const sellableItems = useMemo(() => items.filter(item => item.price > 0 && item.stock > 0), [items]);
   const [draft, setDraft] = useState({
@@ -1198,7 +1201,11 @@ function OnlineOrdersView({
     itemId: "",
     customerName: "",
     customerMobile: "",
+    customerEmail: "",
     deliveryAddress: "",
+    deliveryCity: "",
+    deliveryState: "",
+    deliveryPincode: "",
     quantity: 1,
     paymentStatus: "cod" as "pending" | "paid" | "cod",
     source: "online_store" as "online_store" | "whatsapp" | "manual",
@@ -1246,7 +1253,11 @@ function OnlineOrdersView({
       itemId: item?.id || "",
       customerName: party?.name || "",
       customerMobile: party?.mobile === "-" ? "" : party?.mobile || "",
-      deliveryAddress: party?.state || "",
+      customerEmail: party?.email || "",
+      deliveryAddress: party?.address || "",
+      deliveryCity: party?.city || "",
+      deliveryState: party?.state || business.state || "",
+      deliveryPincode: party?.pincode || "",
       quantity: 1,
       paymentStatus: "cod",
       source: "online_store",
@@ -1290,6 +1301,42 @@ function OnlineOrdersView({
       setNotice(`${order.orderNumber} updated in Postgres.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Online order could not be updated.");
+    }
+  };
+
+  const createShipment = async (order: OnlineOrder) => {
+    if (!canManageOrders) {
+      setNotice("Your role can view online orders but cannot create shipments.");
+      return;
+    }
+    try {
+      setShippingBusyOrderId(order.id);
+      const shippedOrder = await createOnlineOrderShipment(order.id);
+      await onWorkspaceRefresh();
+      setNotice(shippedOrder.shiprocketAwbCode
+        ? `${order.orderNumber} shipped with AWB ${shippedOrder.shiprocketAwbCode}.`
+        : `${order.orderNumber} created in Shiprocket. Assign AWB in Shiprocket, then sync tracking.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Shipment could not be created.");
+    } finally {
+      setShippingBusyOrderId("");
+    }
+  };
+
+  const syncShipping = async (order: OnlineOrder) => {
+    if (!canManageOrders) {
+      setNotice("Your role can view online orders but cannot sync shipments.");
+      return;
+    }
+    try {
+      setShippingBusyOrderId(order.id);
+      const syncedOrder = await syncOnlineOrderShipping(order.id);
+      await onWorkspaceRefresh();
+      setNotice(`${order.orderNumber} tracking synced: ${statusLabel(syncedOrder.shippingStatus)}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Shipment tracking could not be synced.");
+    } finally {
+      setShippingBusyOrderId("");
     }
   };
 
@@ -1399,7 +1446,7 @@ function OnlineOrdersView({
                       <th>Qty</th>
                       <th>Amount</th>
                       <th>Payment</th>
-                      <th>Dispatch</th>
+                      <th>Shipment</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -1425,6 +1472,13 @@ function OnlineOrdersView({
                         </td>
                         <td>
                           <span className={`online-status-pill ${order.dispatchStatus}`}>{statusLabel(order.dispatchStatus)}</span>
+                          {order.shippingStatus !== "not_created" && (
+                            <span className="online-shipping-meta">
+                              {statusLabel(order.shippingStatus)}
+                              {order.shiprocketAwbCode && ` - AWB ${order.shiprocketAwbCode}`}
+                              {order.shiprocketCourierName && ` - ${order.shiprocketCourierName}`}
+                            </span>
+                          )}
                         </td>
                         <td>
                           <div className="online-order-actions">
@@ -1434,10 +1488,27 @@ function OnlineOrdersView({
                             {order.dispatchStatus === "new" && (
                               <button onClick={() => updateStatus(order, "packed")} disabled={!canManageOrders} type="button">Pack</button>
                             )}
-                            {order.dispatchStatus === "packed" && (
-                              <button onClick={() => updateStatus(order, "shipped")} disabled={!canManageOrders} type="button"><Truck size={13} /> Ship</button>
+                            {["new", "packed"].includes(order.dispatchStatus) && !order.shiprocketOrderId && (
+                              <button
+                                onClick={() => createShipment(order)}
+                                disabled={!canManageOrders || shippingBusyOrderId === order.id}
+                                type="button"
+                              >
+                                <Truck size={13} />
+                                {shippingBusyOrderId === order.id ? "Creating..." : "Create Shipment"}
+                              </button>
                             )}
-                            {order.dispatchStatus === "shipped" && (
+                            {order.shiprocketAwbCode && order.dispatchStatus !== "delivered" && (
+                              <button
+                                onClick={() => syncShipping(order)}
+                                disabled={!canManageOrders || shippingBusyOrderId === order.id}
+                                type="button"
+                              >
+                                <RefreshCw size={13} />
+                                {shippingBusyOrderId === order.id ? "Syncing..." : "Sync"}
+                              </button>
+                            )}
+                            {order.dispatchStatus === "shipped" && !order.shiprocketAwbCode && (
                               <button onClick={() => updateStatus(order, "delivered", "paid")} disabled={!canManageOrders} type="button">Deliver</button>
                             )}
                             {!["delivered", "cancelled"].includes(order.dispatchStatus) && (
@@ -1476,7 +1547,11 @@ function OnlineOrdersView({
                       partyId: event.target.value,
                       customerName: party?.name || current.customerName,
                       customerMobile: party?.mobile === "-" ? "" : party?.mobile || current.customerMobile,
-                      deliveryAddress: party?.state || current.deliveryAddress
+                      customerEmail: party?.email || current.customerEmail,
+                      deliveryAddress: party?.address || current.deliveryAddress,
+                      deliveryCity: party?.city || current.deliveryCity,
+                      deliveryState: party?.state || current.deliveryState,
+                      deliveryPincode: party?.pincode || current.deliveryPincode
                     }));
                   }}
                 >
@@ -1506,6 +1581,10 @@ function OnlineOrdersView({
                 <input value={draft.customerMobile} onChange={event => setDraft(current => ({ ...current, customerMobile: event.target.value }))} />
               </label>
               <label>
+                <span>Email</span>
+                <input type="email" value={draft.customerEmail} onChange={event => setDraft(current => ({ ...current, customerEmail: event.target.value }))} />
+              </label>
+              <label>
                 <span>Quantity</span>
                 <input min="1" max={selectedItem?.stock || undefined} type="number" value={draft.quantity} onChange={event => setDraft(current => ({ ...current, quantity: Math.max(1, Number(event.target.value) || 1) }))} />
               </label>
@@ -1528,6 +1607,18 @@ function OnlineOrdersView({
               <label>
                 <span>Available Stock</span>
                 <input readOnly value={selectedItem ? `${selectedItem.stock} PCS` : "-"} />
+              </label>
+              <label>
+                <span>City</span>
+                <input value={draft.deliveryCity} onChange={event => setDraft(current => ({ ...current, deliveryCity: event.target.value }))} />
+              </label>
+              <label>
+                <span>State</span>
+                <input value={draft.deliveryState} onChange={event => setDraft(current => ({ ...current, deliveryState: event.target.value }))} />
+              </label>
+              <label>
+                <span>Pincode</span>
+                <input inputMode="numeric" maxLength={10} value={draft.deliveryPincode} onChange={event => setDraft(current => ({ ...current, deliveryPincode: event.target.value }))} />
               </label>
               <label className="wide">
                 <span>Delivery Address</span>

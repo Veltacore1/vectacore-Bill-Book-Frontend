@@ -680,6 +680,7 @@ export interface OnlineOrder {
   orderDate: string;
   customerName: string;
   customerMobile: string;
+  customerEmail: string;
   partyId: string;
   itemId: string;
   itemName: string;
@@ -692,8 +693,19 @@ export interface OnlineOrder {
   paymentStatus: "pending" | "paid" | "cod" | "refunded";
   dispatchStatus: "new" | "packed" | "shipped" | "delivered" | "cancelled";
   source: "online_store" | "whatsapp" | "manual";
+  shippingProvider: string;
+  shippingStatus: "not_created" | "order_created" | "awb_assigned" | "pickup_scheduled" | "in_transit" | "delivered" | "failed" | string;
+  shiprocketOrderId: string;
+  shiprocketShipmentId: string;
+  shiprocketAwbCode: string;
+  shiprocketCourierName: string;
+  shippingLabelUrl: string;
+  trackingUrl: string;
   stockDeducted: boolean;
   deliveryAddress: string;
+  deliveryCity: string;
+  deliveryState: string;
+  deliveryPincode: string;
   notes: string;
   currentStock: number;
 }
