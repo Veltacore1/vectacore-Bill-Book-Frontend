@@ -1775,9 +1775,9 @@ function SmsMarketingView({
       return;
     }
     try {
-      await syncSmsCampaignDelivery(campaign.id);
+      const result = await syncSmsCampaignDelivery(campaign.id);
       await onWorkspaceRefresh();
-      setNotice(`${campaign.campaignNumber} delivery synced in Postgres.`);
+      setNotice(result.message || `${campaign.campaignNumber} delivery synced in Postgres.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "SMS campaign delivery could not be synced.");
     }

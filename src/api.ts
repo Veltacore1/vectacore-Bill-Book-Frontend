@@ -2568,9 +2568,12 @@ export async function createSmsCampaign(input: {
 }
 
 export async function syncSmsCampaignDelivery(campaignId: string) {
-  const data = await apiFetch<{ campaign: any }>(`/business-tools/sms-campaigns/${campaignId}/sync_delivery/`, {
+  const data = await apiFetch<{ campaign: any; message?: string }>(`/business-tools/sms-campaigns/${campaignId}/sync_delivery/`, {
     method: "POST",
     body: JSON.stringify({})
   });
-  return mapSmsCampaign(data.campaign);
+  return {
+    campaign: mapSmsCampaign(data.campaign),
+    message: data.message || ""
+  };
 }

@@ -457,6 +457,8 @@ export interface PendingReminder {
   status: string;
   attemptCount?: number;
   lastAttemptAt?: string;
+  deliveryProvider?: string;
+  providerMessageId?: string;
   deliveryMessage?: string;
 }
 
