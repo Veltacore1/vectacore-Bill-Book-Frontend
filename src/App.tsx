@@ -2,7 +2,7 @@ import React, { lazy, Suspense, useCallback, useEffect, useState, useMemo } from
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import TenantOnboarding from "./components/TenantOnboarding";
-import { clearTenantSession, createItem, createParty, createSalesInvoice, getWorkspace } from "./api";
+import { clearTenantSession, createItem, createParty, createSalesInvoice, getWorkspace, hasTenantSession } from "./api";
 import type { PurchaseView } from "./components/Purchases";
 import type { SalesRegisterView } from "./components/SalesRegisters";
 import type {
@@ -157,7 +157,10 @@ export default function App() {
   const [publicSharedLedgerToken, setPublicSharedLedgerToken] = useState(sharedLedgerTokenFromPath);
   const [showOnboarding, setShowOnboarding] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return window.location.pathname === "/register" || window.location.pathname === "/login" || params.has("register");
+    return window.location.pathname === "/register"
+      || window.location.pathname === "/login"
+      || params.has("register")
+      || (!sharedLedgerTokenFromPath() && !hasTenantSession());
   });
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [business, setBusiness] = useState<Business>(initialBusiness);

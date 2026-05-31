@@ -1422,8 +1422,9 @@ export async function getEInvoiceLogs(invoiceId: string) {
   return (data.logs || []).map(mapEInvoiceLog);
 }
 
-export async function getEInvoiceQrSvg(invoiceId: string) {
-  return apiText(`/sales/invoices/${invoiceId}/einvoice_qr/`);
+export async function getEInvoiceQrImage(invoiceId: string) {
+  const { blob } = await apiBlob(`/sales/invoices/${invoiceId}/einvoice_qr/`);
+  return blob;
 }
 
 type SalesRegisterInput = {

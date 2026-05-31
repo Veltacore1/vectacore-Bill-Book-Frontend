@@ -6527,9 +6527,10 @@ button {
   background: #ffffff;
 }
 
-.einvoice-qr-svg svg {
+.einvoice-qr-svg img {
   width: 150px;
   height: 150px;
+  object-fit: contain;
 }
 
 .einvoice-qr-body div:last-child {

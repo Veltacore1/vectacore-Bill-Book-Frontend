@@ -24,7 +24,7 @@ import {
   createBankAccount,
   createBankTransaction,
   createExpense,
-  getEInvoiceQrSvg,
+  getEInvoiceQrImage,
   getEInvoiceRegister,
   retryEInvoice,
   transferMoney,
@@ -515,7 +515,7 @@ function EInvoicingView({
   const [statusFilter, setStatusFilter] = useState("all");
   const [registerRows, setRegisterRows] = useState<EInvoiceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [qrPreview, setQrPreview] = useState<{ invoice: EInvoiceRecord; svg: string } | null>(null);
+  const [qrPreview, setQrPreview] = useState<{ invoice: EInvoiceRecord; imageUrl: string } | null>(null);
   const workspaceRows = useMemo(() => invoices.map(invoiceToEInvoiceRecord), [invoices]);
   const visibleInvoices = registerRows.length ? registerRows : workspaceRows;
 
@@ -541,6 +541,17 @@ function EInvoicingView({
   const updateRow = (updated: EInvoiceRecord) => {
     setRegisterRows(current => current.map(row => row.id === updated.id ? updated : row));
   };
+
+  const closeQrPreview = () => {
+    setQrPreview(current => {
+      if (current) URL.revokeObjectURL(current.imageUrl);
+      return null;
+    });
+  };
+
+  useEffect(() => () => {
+    if (qrPreview) URL.revokeObjectURL(qrPreview.imageUrl);
+  }, [qrPreview]);
 
   const generateInvoice = async (invoice: EInvoiceRecord) => {
     try {
@@ -590,8 +601,12 @@ function EInvoicingView({
   const openQrPreview = async (invoice: EInvoiceRecord) => {
     try {
       setBusyInvoiceId(invoice.id);
-      const svg = await getEInvoiceQrSvg(invoice.id);
-      setQrPreview({ invoice, svg });
+      const image = await getEInvoiceQrImage(invoice.id);
+      const imageUrl = URL.createObjectURL(image);
+      setQrPreview(current => {
+        if (current) URL.revokeObjectURL(current.imageUrl);
+        return { invoice, imageUrl };
+      });
       setNotice(`QR preview ready for ${invoice.invoiceNumber}.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "QR preview could not be loaded.");
@@ -726,12 +741,14 @@ function EInvoicingView({
             <div className="einvoice-qr-modal">
               <div className="sales-register-modal-header">
                 <h2>IRN QR Code</h2>
-                <button type="button" onClick={() => setQrPreview(null)} aria-label="Close">
+                <button type="button" onClick={closeQrPreview} aria-label="Close">
                   <X size={20} />
                 </button>
               </div>
               <div className="einvoice-qr-body">
-                <div className="einvoice-qr-svg" dangerouslySetInnerHTML={{ __html: qrPreview.svg }} />
+                <div className="einvoice-qr-svg">
+                  <img src={qrPreview.imageUrl} alt={`IRN QR code for ${qrPreview.invoice.invoiceNumber}`} />
+                </div>
                 <div>
                   <strong>{qrPreview.invoice.invoiceNumber}</strong>
                   <span>{qrPreview.invoice.irn}</span>
