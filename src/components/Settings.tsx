@@ -53,6 +53,7 @@ import type {
   Item,
   NotificationCenterData,
   PendingNotifications,
+  ProviderStatus,
   SalesInvoice,
   SettingsData
 } from "../types";
@@ -61,6 +62,7 @@ import { getModulePermission, roleModulePermissions } from "../types";
 interface SettingsProps {
   business: Business;
   settings: SettingsData | null;
+  providerStatus: Partial<Record<string, ProviderStatus>>;
   users: Array<{ id: string; name: string; mobile: string; role: string; isActive: boolean }>;
   items: Item[];
   invoices: SalesInvoice[];
@@ -248,6 +250,7 @@ const initialsFor = (name: string) =>
 export default function Settings({
   business,
   settings,
+  providerStatus,
   users,
   items,
   invoices,
@@ -703,6 +706,7 @@ export default function Settings({
           {view === "business" && (
             <BusinessSettings
               business={businessDraft}
+              providerStatus={providerStatus}
               onChange={setBusinessDraft}
               onReset={resetDrafts}
               onSave={saveBusiness}
@@ -899,20 +903,55 @@ function AccountSettings({
   );
 }
 
+const providerStatusRows = (providerStatus: Partial<Record<string, ProviderStatus>>) => {
+  const labels: Array<[string, string]> = [
+    ["eInvoice", "E-Invoicing"],
+    ["sms", "SMS OTP"],
+    ["email", "Email"],
+    ["paymentGateway", "Payment Gateway"],
+    ["shipping", "Shipping"],
+    ["whatsapp", "WhatsApp"]
+  ];
+
+  return labels.map(([key, label]) => {
+    const status = providerStatus[key] ?? {
+      provider: "disabled",
+      mode: "disabled",
+      configured: false,
+      missing: []
+    };
+    const missing = status.missing ?? [];
+    const isReady = status.configured && status.mode !== "unsupported";
+    const statusLabel = isReady ? "Configured" : status.mode === "unsupported" ? "Unsupported" : "Action Required";
+    const statusClass = isReady ? "configured" : status.mode === "disabled" ? "disabled" : "attention";
+    return {
+      key,
+      label,
+      provider: status.provider || "disabled",
+      statusLabel,
+      statusClass,
+      missing
+    };
+  });
+};
+
 function BusinessSettings({
   business,
+  providerStatus,
   onChange,
   onReset,
   onSave,
   isSaving
 }: {
   business: SettingsData["businessProfile"];
+  providerStatus: Partial<Record<string, ProviderStatus>>;
   onChange: (business: SettingsData["businessProfile"]) => void;
   onReset: () => void;
   onSave: () => void;
   isSaving: boolean;
 }) {
   const bank = business.bankAccountDetails as Record<string, string>;
+  const providerRows = providerStatusRows(providerStatus);
   const setBankField = (key: string, value: string) => {
     onChange({
       ...business,
@@ -1005,6 +1044,22 @@ function BusinessSettings({
           <label><span>IFSC</span><input value={bank.ifsc || ""} onChange={(event) => setBankField("ifsc", event.target.value)} /></label>
           <label><span>Branch</span><input value={bank.branch || ""} onChange={(event) => setBankField("branch", event.target.value)} /></label>
           <label><span>UPI ID</span><input value={business.upiId} onChange={(event) => onChange({ ...business, upiId: event.target.value })} /></label>
+        </div>
+      </section>
+
+      <section className="settings-form-section">
+        <h2>Production Integrations</h2>
+        <div className="settings-provider-grid">
+          {providerRows.map(row => (
+            <div className={`settings-provider-card ${row.statusClass}`} key={row.key}>
+              <div>
+                <strong>{row.label}</strong>
+                <span>{row.provider}</span>
+              </div>
+              <b>{row.statusLabel}</b>
+              {row.missing.length > 0 && <small>Missing: {row.missing.join(", ")}</small>}
+            </div>
+          ))}
         </div>
       </section>
     </>

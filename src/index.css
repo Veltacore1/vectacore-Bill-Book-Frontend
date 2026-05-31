@@ -10048,6 +10048,76 @@ button {
   font-size: 11px;
 }
 
+.settings-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.settings-provider-card {
+  min-height: 104px;
+  border: 1px solid #d8e0ec;
+  border-radius: 7px;
+  background: #ffffff;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 14px;
+}
+
+.settings-provider-card div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settings-provider-card strong {
+  color: #111827;
+  font-size: 13px;
+}
+
+.settings-provider-card span,
+.settings-provider-card small {
+  color: #667085;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.settings-provider-card b {
+  width: fit-content;
+  min-height: 22px;
+  border-radius: 11px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 9px;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.settings-provider-card.configured {
+  border-color: #bbdfc5;
+}
+
+.settings-provider-card.configured b {
+  background: #edf7ef;
+  color: #087d40;
+}
+
+.settings-provider-card.attention {
+  border-color: #fed7aa;
+}
+
+.settings-provider-card.attention b {
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.settings-provider-card.disabled b {
+  background: #eef2f7;
+  color: #526070;
+}
+
 .settings-ca-summary {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   padding: 16px;
@@ -10892,6 +10962,7 @@ button {
   .settings-two-column,
   .settings-card-grid,
   .settings-card-grid.three,
+  .settings-provider-grid,
   .settings-ca-summary,
   .settings-ca-bundle-grid,
   .settings-pricing-hero,

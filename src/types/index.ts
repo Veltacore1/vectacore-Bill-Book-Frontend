@@ -834,19 +834,22 @@ export interface ReportDefinition {
   filters?: Record<string, string>;
 }
 
+export interface ProviderStatus {
+  provider: string;
+  mode: "development" | "production" | "disabled" | "unsupported";
+  configured: boolean;
+  missing?: string[];
+}
+
 export interface WorkspaceData {
   business: Business;
   providerStatus?: {
-    eInvoice: {
-      provider: string;
-      mode: "development" | "production" | "disabled";
-      configured: boolean;
-    };
-    sms: {
-      provider: string;
-      mode: "development" | "production" | "disabled";
-      configured: boolean;
-    };
+    eInvoice: ProviderStatus;
+    sms: ProviderStatus;
+    email?: ProviderStatus;
+    paymentGateway?: ProviderStatus;
+    shipping?: ProviderStatus;
+    whatsapp?: ProviderStatus;
   };
   modulePermissions?: ModulePermissions;
   parties: Party[];

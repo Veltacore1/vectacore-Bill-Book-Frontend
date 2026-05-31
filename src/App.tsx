@@ -17,6 +17,7 @@ import type {
   Party,
   PurchaseRegisterRow,
   PurchaseViewKey,
+  ProviderStatus,
   SMSMarketingData,
   SalesRegisterDataRow,
   SalesRegisterViewKey,
@@ -79,6 +80,7 @@ const initialSmsMarketing: SMSMarketingData = {
   campaigns: []
 };
 const initialSettingsData: SettingsData | null = null;
+const initialProviderStatus: Partial<Record<string, ProviderStatus>> = {};
 const initialDashboard: DashboardData = {
   lastUpdated: "",
   stats: {
@@ -171,6 +173,7 @@ export default function App() {
   const [onlineOrders, setOnlineOrders] = useState<OnlineOrder[]>([]);
   const [smsMarketing, setSmsMarketing] = useState<SMSMarketingData>(initialSmsMarketing);
   const [settingsData, setSettingsData] = useState<SettingsData | null>(initialSettingsData);
+  const [providerStatus, setProviderStatus] = useState<Partial<Record<string, ProviderStatus>>>(initialProviderStatus);
   const [dashboardData, setDashboardData] = useState<DashboardData>(initialDashboard);
   const [users, setUsers] = useState<Array<{ id: string; name: string; mobile: string; role: string; isActive: boolean }>>([]);
   const [modulePermissions, setModulePermissions] = useState<ModulePermissions>({});
@@ -211,6 +214,7 @@ export default function App() {
         setOnlineOrders(workspace.businessTools?.onlineOrders ?? []);
         setSmsMarketing(workspace.businessTools?.smsMarketing ?? initialSmsMarketing);
         setSettingsData(workspace.settings ?? initialSettingsData);
+        setProviderStatus(workspace.providerStatus ?? initialProviderStatus);
         setUsers(workspace.users);
         setModulePermissions(workspace.modulePermissions ?? {});
         setCounts(workspace.counts);
@@ -485,6 +489,7 @@ export default function App() {
     setOnlineOrders([]);
     setSmsMarketing(initialSmsMarketing);
     setSettingsData(initialSettingsData);
+    setProviderStatus(initialProviderStatus);
     setDashboardData(initialDashboard);
     setUsers([]);
     setModulePermissions({});
@@ -693,6 +698,7 @@ export default function App() {
             <Settings
               business={business}
               settings={settingsData}
+              providerStatus={providerStatus}
               users={users}
               items={items}
               invoices={invoices}
