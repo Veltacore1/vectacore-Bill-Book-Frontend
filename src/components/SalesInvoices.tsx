@@ -17,8 +17,8 @@ import {
   Settings2,
   X
 } from "lucide-react";
-import { cancelSalesInvoice, getSalesInvoicePrintHtml, type InvoicePrintTemplate } from "../api";
-import type { Business, InvoiceItem, Item, Party, SalesInvoice } from "../types";
+import { cancelSalesInvoice, createPaymentGatewayOrder, getSalesInvoicePrintHtml, type InvoicePrintTemplate } from "../api";
+import type { Business, InvoiceItem, Item, Party, PaymentGatewayOrder, SalesInvoice } from "../types";
 
 type SalesMode = "list" | "create" | "detail";
 
@@ -26,6 +26,7 @@ type InvoiceRow = {
   id: string;
   invoiceNumber: string;
   date: string;
+  partyId: string;
   partyName: string;
   dueIn: string;
   amount: number;
@@ -87,6 +88,7 @@ const invoiceToRow = (invoice: SalesInvoice): InvoiceRow => {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
     date: invoice.date,
+    partyId: invoice.party.id,
     partyName: invoice.party.name.toUpperCase(),
     dueIn: "-",
     amount: invoice.total,
@@ -211,6 +213,7 @@ export default function SalesInvoices({
           onBack={() => onModeChange("list")}
           onCancelInvoice={handleCancelInvoice}
           onNavigate={onNavigate}
+          onWorkspaceRefresh={onWorkspaceRefresh}
           business={business}
         />
       )}
@@ -946,15 +949,19 @@ interface SalesInvoiceDetailProps {
   onBack: () => void;
   onCancelInvoice: (invoice: InvoiceRow) => Promise<void> | void;
   onNavigate: (tab: string) => void;
+  onWorkspaceRefresh?: () => Promise<void> | void;
   business: Business;
 }
 
-function SalesInvoiceDetail({ invoice, onBack, onCancelInvoice, onNavigate, business }: SalesInvoiceDetailProps) {
+function SalesInvoiceDetail({ invoice, onBack, onCancelInvoice, onNavigate, onWorkspaceRefresh, business }: SalesInvoiceDetailProps) {
   const balance = getBalance(invoice);
   const [printNotice, setPrintNotice] = useState("");
   const [printingTemplate, setPrintingTemplate] = useState<InvoicePrintTemplate | "">("");
   const [printPreview, setPrintPreview] = useState<{ title: string; html: string } | null>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [gatewayNotice, setGatewayNotice] = useState("");
+  const [gatewayOrder, setGatewayOrder] = useState<PaymentGatewayOrder | null>(null);
+  const [isCreatingGatewayOrder, setIsCreatingGatewayOrder] = useState(false);
 
   const openPrintTemplate = async (template: InvoicePrintTemplate) => {
     try {
@@ -967,6 +974,31 @@ function SalesInvoiceDetail({ invoice, onBack, onCancelInvoice, onNavigate, busi
       setPrintNotice(error instanceof Error ? error.message : "Invoice print preview could not be prepared.");
     } finally {
       setPrintingTemplate("");
+    }
+  };
+
+  const createOnlinePaymentOrder = async () => {
+    if (balance <= 0) {
+      setGatewayNotice("This invoice is already fully paid.");
+      return;
+    }
+
+    setIsCreatingGatewayOrder(true);
+    setGatewayNotice("");
+    try {
+      const result = await createPaymentGatewayOrder({
+        partyId: invoice.partyId,
+        invoiceId: invoice.id,
+        amount: balance,
+        notes: { invoiceNumber: invoice.invoiceNumber }
+      });
+      setGatewayOrder(result.order);
+      setGatewayNotice(`Razorpay order ${result.checkout.providerOrderId} created from backend.`);
+      await onWorkspaceRefresh?.();
+    } catch (error) {
+      setGatewayNotice(error instanceof Error ? error.message : "Online payment order could not be created.");
+    } finally {
+      setIsCreatingGatewayOrder(false);
     }
   };
 
@@ -1061,11 +1093,19 @@ function SalesInvoiceDetail({ invoice, onBack, onCancelInvoice, onNavigate, busi
           <button onClick={() => onNavigate("e-invoicing")} type="button">Generate E-way Bill</button>
           <button onClick={() => onNavigate("e-invoicing")} type="button">Generate e-Invoice</button>
           <span />
+          <button
+            disabled={isCreatingGatewayOrder || invoice.status === "cancelled" || balance <= 0}
+            onClick={createOnlinePaymentOrder}
+            type="button"
+          >
+            {isCreatingGatewayOrder ? "Creating..." : "Collect Online"}
+          </button>
           <button className="primary" onClick={() => onNavigate("payment-in")} type="button">Record Payment In</button>
         </div>
       </div>
 
       {printNotice && <div className="sales-action-strip sales-print-notice">{printNotice}</div>}
+      {gatewayNotice && <div className="sales-action-strip sales-print-notice">{gatewayNotice}</div>}
 
       <div className="sales-detail-body">
         <div className="sales-preview-scroll">
@@ -1094,6 +1134,19 @@ function SalesInvoiceDetail({ invoice, onBack, onCancelInvoice, onNavigate, busi
             <span>Balance Amount</span>
             <strong>{formatMoney(balance)}</strong>
           </div>
+          {gatewayOrder && (
+            <div className="sales-gateway-order-card">
+              <span>Online Payment Order</span>
+              <strong>{gatewayOrder.providerOrderId}</strong>
+              <small>{gatewayOrder.status} - {formatMoney(gatewayOrder.amount)}</small>
+              <button
+                onClick={() => navigator.clipboard?.writeText(gatewayOrder.providerOrderId)}
+                type="button"
+              >
+                Copy Order ID
+              </button>
+            </div>
+          )}
         </aside>
       </div>
 

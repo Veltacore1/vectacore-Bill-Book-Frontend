@@ -4939,6 +4939,40 @@ button {
   font-weight: 800;
 }
 
+.sales-gateway-order-card {
+  margin: 0 20px 20px;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #f8fafc;
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+}
+
+.sales-gateway-order-card span,
+.sales-gateway-order-card small {
+  color: #667085;
+  font-size: 12px;
+}
+
+.sales-gateway-order-card strong {
+  color: #111827;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.sales-gateway-order-card button {
+  width: fit-content;
+  min-height: 30px;
+  border: 1px solid #cfd6e4;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #344054;
+  padding: 0 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .sales-invoice-paper {
   width: 906px;
   min-height: 950px;

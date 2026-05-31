@@ -613,6 +613,29 @@ export interface PaymentSettlement {
   settledAmount: number;
 }
 
+export interface PaymentGatewayOrder {
+  id: string;
+  provider: string;
+  providerOrderId: string;
+  providerPaymentId: string;
+  providerStatus: string;
+  receipt: string;
+  amount: number;
+  amountSubunits: number;
+  currency: string;
+  status: "created" | "attempted" | "paid" | "failed" | "cancelled" | string;
+  signatureVerified: boolean;
+  partyId: string;
+  partyName: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  paymentInId: string;
+  paymentNumber: string;
+  createdAt: string;
+  updatedAt: string;
+  paidAt: string;
+}
+
 export interface AccountingData {
   bankAccounts: Array<{
     id: string;

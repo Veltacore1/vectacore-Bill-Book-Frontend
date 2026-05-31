@@ -16,6 +16,7 @@ import type {
   GodownTransfer,
   NotificationCenterData,
   PendingNotifications,
+  PaymentGatewayOrder,
   PaymentSettlement,
   PurchaseRegisterRow,
   ReportDefinition,
@@ -1503,6 +1504,59 @@ function mapPaymentSettlements(data: any): PaymentSettlement[] {
     invoiceNumber: settlement.invoice_number || "-",
     settledAmount: Number(settlement.settled_amount ?? 0)
   }));
+}
+
+function mapPaymentGatewayOrder(data: any): PaymentGatewayOrder {
+  return {
+    id: data.id,
+    provider: data.provider || "",
+    providerOrderId: data.provider_order_id || "",
+    providerPaymentId: data.provider_payment_id || "",
+    providerStatus: data.provider_status || "",
+    receipt: data.receipt || "",
+    amount: Number(data.amount ?? 0),
+    amountSubunits: Number(data.amount_subunits ?? 0),
+    currency: data.currency || "INR",
+    status: data.status || "created",
+    signatureVerified: Boolean(data.signature_verified),
+    partyId: data.party || "",
+    partyName: data.party_name || "",
+    invoiceId: data.invoice || "",
+    invoiceNumber: data.invoice_number || "",
+    paymentInId: data.payment_in || "",
+    paymentNumber: data.payment_number || "",
+    createdAt: data.created_at || "",
+    updatedAt: data.updated_at || "",
+    paidAt: data.paid_at || ""
+  };
+}
+
+export async function createPaymentGatewayOrder(input: {
+  partyId: string;
+  invoiceId?: string;
+  amount: number;
+  notes?: Record<string, string>;
+}) {
+  const data = await apiFetch<any>("/payments/gateway/orders/", {
+    method: "POST",
+    body: JSON.stringify({
+      party: input.partyId,
+      invoice: input.invoiceId || null,
+      amount: roundMoney(input.amount),
+      notes: input.notes || {}
+    })
+  });
+  return {
+    order: mapPaymentGatewayOrder(data.order),
+    checkout: data.checkout as {
+      keyId: string;
+      providerOrderId: string;
+      amountSubunits: number;
+      currency: string;
+      businessName: string;
+      customerName: string;
+    }
+  };
 }
 
 function salesRegisterLinePayload(input: SalesRegisterInput) {
