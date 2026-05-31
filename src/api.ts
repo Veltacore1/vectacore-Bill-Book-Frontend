@@ -32,13 +32,15 @@ import type {
 } from "./types";
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? "http://127.0.0.1:8001/api/v1").replace(/\/$/, "");
-const ACCESS_KEY = "csm_silks_access_token";
-const REFRESH_KEY = "csm_silks_refresh_token";
+const SESSION_MARKER_KEY = "vastrabook_session_active";
+const LEGACY_ACCESS_KEY = "csm_silks_access_token";
+const LEGACY_REFRESH_KEY = "csm_silks_refresh_token";
 const DEMO_SESSION_ENABLED = import.meta.env.VITE_DEMO_SESSION === "true"
   || (import.meta.env.DEV && import.meta.env.VITE_DEMO_SESSION !== "false");
 const NO_TENANT_SESSION_MESSAGE = "No tenant session. Login or register a textile business before opening the workspace.";
 const SESSION_EXPIRED_MESSAGE = "Your session expired. Login again to continue.";
 const roundMoney = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+let accessTokenCache: string | null = null;
 
 type ApiEnvelope<T> = T & {
   success?: boolean;
@@ -61,45 +63,81 @@ async function readJson<T>(response: Response): Promise<ApiEnvelope<T>> {
   return data;
 }
 
+function clearLegacyStoredTokens() {
+  localStorage.removeItem(LEGACY_ACCESS_KEY);
+  localStorage.removeItem(LEGACY_REFRESH_KEY);
+}
+
+function markTenantSession(active: boolean) {
+  if (active) {
+    localStorage.setItem(SESSION_MARKER_KEY, "true");
+  } else {
+    localStorage.removeItem(SESSION_MARKER_KEY);
+  }
+}
+
+function cacheAccessToken(accessToken: string) {
+  accessTokenCache = accessToken;
+  markTenantSession(true);
+  localStorage.removeItem(LEGACY_ACCESS_KEY);
+}
+
+async function refreshAccessToken(refreshOverride?: string) {
+  const response = await fetch(`${API_BASE}/auth/token/refresh`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(refreshOverride ? { refresh: refreshOverride } : {})
+  });
+  const data = await readJson<{ access: string }>(response);
+  cacheAccessToken(data.access);
+  if (refreshOverride) {
+    localStorage.removeItem(LEGACY_REFRESH_KEY);
+  }
+  return data.access;
+}
+
 async function getAccessToken(forceRefresh = false) {
-  if (!forceRefresh) {
-    const cached = localStorage.getItem(ACCESS_KEY);
-    if (cached) return cached;
+  if (!forceRefresh && accessTokenCache) {
+    return accessTokenCache;
   }
 
-  const refresh = localStorage.getItem(REFRESH_KEY);
-  if (refresh) {
+  const legacyAccess = localStorage.getItem(LEGACY_ACCESS_KEY);
+  if (!forceRefresh && legacyAccess) {
+    cacheAccessToken(legacyAccess);
+    return legacyAccess;
+  }
+
+  const legacyRefresh = localStorage.getItem(LEGACY_REFRESH_KEY);
+  if (legacyRefresh) {
     try {
-      const response = await fetch(`${API_BASE}/auth/token/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh })
-      });
-      const data = await readJson<{ access: string; refresh?: string }>(response);
-      localStorage.setItem(ACCESS_KEY, data.access);
-      if (data.refresh) {
-        localStorage.setItem(REFRESH_KEY, data.refresh);
-      }
-      return data.access;
+      return await refreshAccessToken(legacyRefresh);
     } catch {
-      clearTenantSession();
-      throw new Error(SESSION_EXPIRED_MESSAGE);
+      clearLegacyStoredTokens();
     }
   }
 
-  if (!DEMO_SESSION_ENABLED) {
-    throw new Error(NO_TENANT_SESSION_MESSAGE);
+  try {
+    return await refreshAccessToken();
+  } catch (error) {
+    const hadSession = hasTenantSession();
+    accessTokenCache = null;
+    if (!DEMO_SESSION_ENABLED) {
+      markTenantSession(false);
+      throw new Error(hadSession ? SESSION_EXPIRED_MESSAGE : NO_TENANT_SESSION_MESSAGE, { cause: error });
+    }
   }
 
   try {
     const response = await fetch(`${API_BASE}/auth/demo-session`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mobile: "8608633066" })
     });
-    const data = await readJson<{ tokens: { access: string; refresh: string } }>(response);
-    localStorage.setItem(ACCESS_KEY, data.tokens.access);
-    localStorage.setItem(REFRESH_KEY, data.tokens.refresh);
+    const data = await readJson<{ tokens: { access: string } }>(response);
+    cacheAccessToken(data.tokens.access);
+    clearLegacyStoredTokens();
     return data.tokens.access;
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
@@ -112,21 +150,29 @@ async function getAccessToken(forceRefresh = false) {
 }
 
 async function recoverAccessTokenAfterUnauthorized() {
-  localStorage.removeItem(ACCESS_KEY);
-  if (!localStorage.getItem(REFRESH_KEY)) {
+  accessTokenCache = null;
+  try {
+    return await getAccessToken(true);
+  } catch (error) {
     clearTenantSession();
-    throw new Error("Your session expired. Login again to continue.");
+    throw new Error(SESSION_EXPIRED_MESSAGE, { cause: error });
   }
-  return getAccessToken(true);
 }
 
 export function clearTenantSession() {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
+  accessTokenCache = null;
+  markTenantSession(false);
+  clearLegacyStoredTokens();
+  void fetch(`${API_BASE}/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({})
+  }).catch(() => undefined);
 }
 
 export function hasTenantSession() {
-  return Boolean(localStorage.getItem(ACCESS_KEY) || localStorage.getItem(REFRESH_KEY));
+  return Boolean(accessTokenCache || localStorage.getItem(SESSION_MARKER_KEY) || localStorage.getItem(LEGACY_ACCESS_KEY) || localStorage.getItem(LEGACY_REFRESH_KEY));
 }
 
 export function isDemoSessionAvailable() {
@@ -134,7 +180,9 @@ export function isDemoSessionAvailable() {
 }
 
 export async function startDemoSession() {
-  clearTenantSession();
+  accessTokenCache = null;
+  markTenantSession(false);
+  clearLegacyStoredTokens();
   await getAccessToken(true);
 }
 
@@ -142,6 +190,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): 
   const token = await getAccessToken();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
@@ -151,7 +200,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): 
 
   if (response.status === 401 && retry) {
     const refreshedToken = await recoverAccessTokenAfterUnauthorized();
-    localStorage.setItem(ACCESS_KEY, refreshedToken);
+    cacheAccessToken(refreshedToken);
     return apiFetch<T>(path, init, false);
   }
   if (response.status === 401) {
@@ -165,6 +214,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): 
 async function publicApiFetch<T>(path: string, init: RequestInit = {}): Promise<ApiEnvelope<T>> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(init.headers ?? {})
@@ -177,6 +227,7 @@ async function apiText(path: string, init: RequestInit = {}, retry = true): Prom
   const token = await getAccessToken();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       Authorization: `Bearer ${token}`,
       ...(init.headers ?? {})
@@ -185,7 +236,7 @@ async function apiText(path: string, init: RequestInit = {}, retry = true): Prom
 
   if (response.status === 401 && retry) {
     const refreshedToken = await recoverAccessTokenAfterUnauthorized();
-    localStorage.setItem(ACCESS_KEY, refreshedToken);
+    cacheAccessToken(refreshedToken);
     return apiText(path, init, false);
   }
   if (response.status === 401) {
@@ -204,6 +255,7 @@ async function apiBlob(path: string, init: RequestInit = {}, retry = true): Prom
   const token = await getAccessToken();
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       Authorization: `Bearer ${token}`,
       ...(init.headers ?? {})
@@ -212,7 +264,7 @@ async function apiBlob(path: string, init: RequestInit = {}, retry = true): Prom
 
   if (response.status === 401 && retry) {
     const refreshedToken = await recoverAccessTokenAfterUnauthorized();
-    localStorage.setItem(ACCESS_KEY, refreshedToken);
+    cacheAccessToken(refreshedToken);
     return apiBlob(path, init, false);
   }
   if (response.status === 401) {
@@ -240,6 +292,7 @@ export async function getWorkspace() {
 export async function sendLoginOtp(input: { mobile: string }) {
   const response = await fetch(`${API_BASE}/auth/send-otp`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mobile: input.mobile })
   });
@@ -253,15 +306,16 @@ export async function sendLoginOtp(input: { mobile: string }) {
 export async function verifyLoginOtp(input: { mobile: string; otp: string }) {
   const response = await fetch(`${API_BASE}/auth/verify-otp`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       mobile: input.mobile,
       otp: input.otp
     })
   });
-  const data = await readJson<{ tokens: { access: string; refresh: string }; business?: Business }>(response);
-  localStorage.setItem(ACCESS_KEY, data.tokens.access);
-  localStorage.setItem(REFRESH_KEY, data.tokens.refresh);
+  const data = await readJson<{ tokens: { access: string }; business?: Business }>(response);
+  cacheAccessToken(data.tokens.access);
+  clearLegacyStoredTokens();
   return data;
 }
 
@@ -280,6 +334,7 @@ export async function registerTextileTenant(input: {
 }) {
   const response = await fetch(`${API_BASE}/auth/register`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       business_name: input.businessName,
@@ -295,9 +350,9 @@ export async function registerTextileTenant(input: {
       password: input.password || ""
     })
   });
-  const data = await readJson<{ tokens: { access: string; refresh: string }; business: Business }>(response);
-  localStorage.setItem(ACCESS_KEY, data.tokens.access);
-  localStorage.setItem(REFRESH_KEY, data.tokens.refresh);
+  const data = await readJson<{ tokens: { access: string }; business: Business }>(response);
+  cacheAccessToken(data.tokens.access);
+  clearLegacyStoredTokens();
   return data;
 }
 
