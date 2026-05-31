@@ -127,6 +127,12 @@ const TAB_MODULES: Record<string, string> = {
 const FALLBACK_TABS = ["dashboard", "items", "parties", "sales-invoices", "purchases", "reports"];
 
 const labelForModule = (moduleKey: string) => moduleKey.replace(/_/g, " ");
+const shouldOpenOnboarding = (message: string) => (
+  message.includes("No tenant session")
+  || message.includes("session expired")
+  || message.includes("Seeded tenant user not found")
+  || message.includes("Demo session is disabled")
+);
 
 const sharedLedgerTokenFromPath = () => {
   const match = window.location.pathname.match(/^\/shared-ledger\/([^/]+)\/?$/);
@@ -201,7 +207,8 @@ export default function App() {
       .catch((error) => {
         const message = error instanceof Error ? error.message : "Unable to load tenant data";
         setApiError(message);
-        if (message.includes("No tenant session")) {
+        if (shouldOpenOnboarding(message)) {
+          clearTenantSession();
           setShowOnboarding(true);
         }
       })

@@ -23,6 +23,8 @@ GitHub Actions are included:
 
 Set the repository variable `VITE_API_URL` in GitHub before production builds so the static bundle points to the deployed backend API.
 
+The production Nginx image serves immutable static assets, keeps the SPA shell uncached, and sends baseline security headers including CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy`.
+
 Published image:
 
 ```text

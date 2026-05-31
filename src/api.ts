@@ -35,6 +35,8 @@ const ACCESS_KEY = "csm_silks_access_token";
 const REFRESH_KEY = "csm_silks_refresh_token";
 const DEMO_SESSION_ENABLED = import.meta.env.VITE_DEMO_SESSION === "true"
   || (import.meta.env.DEV && import.meta.env.VITE_DEMO_SESSION !== "false");
+const NO_TENANT_SESSION_MESSAGE = "No tenant session. Login or register a textile business before opening the workspace.";
+const SESSION_EXPIRED_MESSAGE = "Your session expired. Login again to continue.";
 const roundMoney = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 
 type ApiEnvelope<T> = T & {
@@ -80,23 +82,32 @@ async function getAccessToken(forceRefresh = false) {
       return data.access;
     } catch {
       clearTenantSession();
-      throw new Error("Your session expired. Login again to continue.");
+      throw new Error(SESSION_EXPIRED_MESSAGE);
     }
   }
 
   if (!DEMO_SESSION_ENABLED) {
-    throw new Error("No tenant session. Login or register a textile business before opening the workspace.");
+    throw new Error(NO_TENANT_SESSION_MESSAGE);
   }
 
-  const response = await fetch(`${API_BASE}/auth/demo-session`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mobile: "8608633066" })
-  });
-  const data = await readJson<{ tokens: { access: string; refresh: string } }>(response);
-  localStorage.setItem(ACCESS_KEY, data.tokens.access);
-  localStorage.setItem(REFRESH_KEY, data.tokens.refresh);
-  return data.tokens.access;
+  try {
+    const response = await fetch(`${API_BASE}/auth/demo-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mobile: "8608633066" })
+    });
+    const data = await readJson<{ tokens: { access: string; refresh: string } }>(response);
+    localStorage.setItem(ACCESS_KEY, data.tokens.access);
+    localStorage.setItem(REFRESH_KEY, data.tokens.refresh);
+    return data.tokens.access;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("Seeded tenant user not found") || message.includes("Demo session is disabled")) {
+      clearTenantSession();
+      throw new Error(NO_TENANT_SESSION_MESSAGE, { cause: error });
+    }
+    throw error;
+  }
 }
 
 async function recoverAccessTokenAfterUnauthorized() {
@@ -142,6 +153,10 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): 
     localStorage.setItem(ACCESS_KEY, refreshedToken);
     return apiFetch<T>(path, init, false);
   }
+  if (response.status === 401) {
+    clearTenantSession();
+    throw new Error(SESSION_EXPIRED_MESSAGE);
+  }
 
   return readJson<T>(response);
 }
@@ -172,6 +187,10 @@ async function apiText(path: string, init: RequestInit = {}, retry = true): Prom
     localStorage.setItem(ACCESS_KEY, refreshedToken);
     return apiText(path, init, false);
   }
+  if (response.status === 401) {
+    clearTenantSession();
+    throw new Error(SESSION_EXPIRED_MESSAGE);
+  }
 
   const text = await response.text();
   if (!response.ok) {
@@ -194,6 +213,10 @@ async function apiBlob(path: string, init: RequestInit = {}, retry = true): Prom
     const refreshedToken = await recoverAccessTokenAfterUnauthorized();
     localStorage.setItem(ACCESS_KEY, refreshedToken);
     return apiBlob(path, init, false);
+  }
+  if (response.status === 401) {
+    clearTenantSession();
+    throw new Error(SESSION_EXPIRED_MESSAGE);
   }
 
   if (!response.ok) {
