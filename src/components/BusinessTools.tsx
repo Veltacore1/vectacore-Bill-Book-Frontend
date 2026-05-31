@@ -1704,6 +1704,21 @@ function SmsMarketingView({
   }, [smsMarketing.campaigns, query, statusFilter]);
 
   const statusLabel = (value: string) => value.replace("_", " ").replace(/^\w/, char => char.toUpperCase());
+  const receiptSummary = (campaign: SMSCampaign) => {
+    const recipients = campaign.recipients ?? [];
+    if (!recipients.length) return "Awaiting receipts";
+    const delivered = recipients.filter(recipient => recipient.status === "delivered").length;
+    const sent = recipients.filter(recipient => recipient.status === "sent").length;
+    const failed = recipients.filter(recipient => recipient.status === "failed").length;
+    return `${delivered} delivered · ${sent} sent · ${failed} failed`;
+  };
+  const providerSummary = (campaign: SMSCampaign) => {
+    const recipient = (campaign.recipients ?? []).find(row => row.provider || row.providerMessageId || row.errorMessage);
+    if (!recipient) return "";
+    const provider = recipient.provider ? statusLabel(recipient.provider) : "Provider";
+    if (recipient.providerMessageId) return `${provider} ${recipient.providerMessageId}`;
+    return recipient.errorMessage || provider;
+  };
 
   const openCreateCampaign = () => {
     if (!canCreateCampaigns) {
@@ -1891,7 +1906,11 @@ function SmsMarketingView({
                         <td>{campaign.templateName}</td>
                         <td>{campaign.recipientCount} customers</td>
                         <td>{campaign.creditCost}</td>
-                        <td>{campaign.deliveredCount}/{campaign.recipientCount}</td>
+                        <td>
+                          {campaign.deliveredCount}/{campaign.recipientCount}
+                          <span className="sms-receipt-summary">{receiptSummary(campaign)}</span>
+                          {providerSummary(campaign) && <span className="sms-provider-meta">{providerSummary(campaign)}</span>}
+                        </td>
                         <td><span className={`online-status-pill ${campaign.status}`}>{statusLabel(campaign.status)}</span></td>
                         <td>
                           {campaign.status === "queued" && (

@@ -1445,6 +1445,19 @@ const formatApiDate = (value: string) => {
   return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 };
 
+const formatApiDateTime = (value: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+};
+
 const parseDisplayDateForApi = (value?: string) => {
   if (!value || value === "-") return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
@@ -2526,6 +2539,19 @@ export async function updateOnlineOrderStatus(input: {
 }
 
 function mapSmsCampaign(data: any): SMSCampaign {
+  const recipients = (data.recipients || []).map((recipient: any) => ({
+    id: recipient.id,
+    partyId: recipient.party || recipient.partyId || "",
+    partyName: recipient.party_name || recipient.partyName || "",
+    mobile: recipient.mobile || "",
+    status: recipient.status || "queued",
+    provider: recipient.provider || "",
+    providerMessageId: recipient.provider_message_id || recipient.providerMessageId || "",
+    sentAt: formatApiDateTime(recipient.sent_at || recipient.sentAt || ""),
+    deliveredAt: formatApiDateTime(recipient.delivered_at || recipient.deliveredAt || ""),
+    errorMessage: recipient.error_message || recipient.errorMessage || "",
+    createdAt: formatApiDateTime(recipient.created_at || recipient.createdAt || "")
+  }));
   return {
     id: data.id,
     campaignNumber: data.campaign_number || data.campaignNumber,
@@ -2541,7 +2567,8 @@ function mapSmsCampaign(data: any): SMSCampaign {
     status: data.status || "draft",
     queuedAt: formatApiDate((data.queued_at || data.queuedAt || "").slice(0, 10)),
     completedAt: formatApiDate((data.completed_at || data.completedAt || "").slice(0, 10)),
-    createdAt: formatApiDate((data.created_at || data.createdAt || "").slice(0, 10))
+    createdAt: formatApiDate((data.created_at || data.createdAt || "").slice(0, 10)),
+    recipients
   };
 }
 

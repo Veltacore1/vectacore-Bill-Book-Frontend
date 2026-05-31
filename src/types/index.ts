@@ -720,6 +720,20 @@ export interface SMSTemplate {
   isActive: boolean;
 }
 
+export interface SMSRecipient {
+  id: string;
+  partyId: string;
+  partyName: string;
+  mobile: string;
+  status: "queued" | "sent" | "delivered" | "failed";
+  provider: string;
+  providerMessageId: string;
+  sentAt: string;
+  deliveredAt: string;
+  errorMessage: string;
+  createdAt: string;
+}
+
 export interface SMSCampaign {
   id: string;
   campaignNumber: string;
@@ -736,6 +750,7 @@ export interface SMSCampaign {
   queuedAt: string;
   completedAt: string;
   createdAt: string;
+  recipients: SMSRecipient[];
 }
 
 export interface SMSMarketingData {

@@ -7993,6 +7993,17 @@ button {
   margin-top: 4px;
 }
 
+.sms-receipt-summary {
+  color: #475569 !important;
+  font-weight: 700;
+}
+
+.sms-provider-meta {
+  color: #64748b !important;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px !important;
+}
+
 .online-status-pill.queued,
 .online-status-pill.draft {
   background: #fff7e6;
