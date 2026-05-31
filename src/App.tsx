@@ -1,22 +1,10 @@
-import React, { useCallback, useEffect, useState, useMemo } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useState, useMemo } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
-import Dashboard from "./components/Dashboard";
-import Parties from "./components/Parties";
-import Items from "./components/Items";
-import POSBilling from "./components/POSBilling";
-import SalesInvoices from "./components/SalesInvoices";
-import SalesRegisters, { type SalesRegisterView } from "./components/SalesRegisters";
-import SharedLedger from "./components/SharedLedger";
-import Purchases, { type PurchaseView } from "./components/Purchases";
-import Reports from "./components/Reports";
-import AccountingSolutions from "./components/AccountingSolutions";
-import BusinessTools from "./components/BusinessTools";
-import Settings from "./components/Settings";
-import GodownModule from "./components/Godown";
 import TenantOnboarding from "./components/TenantOnboarding";
-import PublicSharedLedger from "./components/PublicSharedLedger";
 import { clearTenantSession, createItem, createParty, createSalesInvoice, getWorkspace } from "./api";
+import type { PurchaseView } from "./components/Purchases";
+import type { SalesRegisterView } from "./components/SalesRegisters";
 import type {
   AccountingData,
   Business,
@@ -37,6 +25,21 @@ import type {
   Staff,
   TransactionRow
 } from "./types";
+
+const AccountingSolutions = lazy(() => import("./components/AccountingSolutions"));
+const BusinessTools = lazy(() => import("./components/BusinessTools"));
+const Dashboard = lazy(() => import("./components/Dashboard"));
+const GodownModule = lazy(() => import("./components/Godown"));
+const Items = lazy(() => import("./components/Items"));
+const Parties = lazy(() => import("./components/Parties"));
+const POSBilling = lazy(() => import("./components/POSBilling"));
+const PublicSharedLedger = lazy(() => import("./components/PublicSharedLedger"));
+const Purchases = lazy(() => import("./components/Purchases"));
+const Reports = lazy(() => import("./components/Reports"));
+const SalesInvoices = lazy(() => import("./components/SalesInvoices"));
+const SalesRegisters = lazy(() => import("./components/SalesRegisters"));
+const Settings = lazy(() => import("./components/Settings"));
+const SharedLedger = lazy(() => import("./components/SharedLedger"));
 
 const initialBusiness: Business = {
   name: "Loading tenant...",
@@ -133,6 +136,15 @@ const shouldOpenOnboarding = (message: string) => (
   || message.includes("Seeded tenant user not found")
   || message.includes("Demo session is disabled")
 );
+
+function WorkspaceSuspenseFallback() {
+  return (
+    <div className="tenant-loading-card">
+      <strong>Loading workspace module</strong>
+      <span>Preparing the selected production screen.</span>
+    </div>
+  );
+}
 
 const sharedLedgerTokenFromPath = () => {
   const match = window.location.pathname.match(/^\/shared-ledger\/([^/]+)\/?$/);
@@ -487,14 +499,16 @@ export default function App() {
 
   if (publicSharedLedgerToken) {
     return (
-      <PublicSharedLedger
-        token={publicSharedLedgerToken}
-        onExit={() => {
-          window.history.pushState({}, "", "/");
-          setPublicSharedLedgerToken("");
-          navigateToTab("shared-ledger");
-        }}
-      />
+      <Suspense fallback={<WorkspaceSuspenseFallback />}>
+        <PublicSharedLedger
+          token={publicSharedLedgerToken}
+          onExit={() => {
+            window.history.pushState({}, "", "/");
+            setPublicSharedLedgerToken("");
+            navigateToTab("shared-ledger");
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -539,7 +553,8 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === "dashboard" && (
+          <Suspense fallback={<WorkspaceSuspenseFallback />}>
+            {activeTab === "dashboard" && (
             <Dashboard
               stats={stats}
               dashboard={dashboardData}
@@ -687,6 +702,7 @@ export default function App() {
               onLogout={handleLogout}
             />
           )}
+          </Suspense>
         </div>
       </div>
 
