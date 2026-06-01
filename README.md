@@ -20,7 +20,7 @@ Authentication uses short-lived access tokens in memory plus the backend's HttpO
 
 GitHub Actions are included:
 
-- `Frontend CI`: installs dependencies, runs ESLint, builds the Vite app, and uploads the `dist` artifact.
+- `Frontend CI`: runs a tracked-file secret scan, installs dependencies, runs ESLint, builds the Vite app, and uploads the `dist` artifact.
 - `Frontend Container CD`: builds and publishes a production Nginx image to GitHub Container Registry on `main`, tags, or manual dispatch.
 
 Set the repository variable `VITE_API_URL` in GitHub before production builds so the static bundle points to the deployed backend API.
