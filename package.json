@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "render:nginx": "node scripts/render-nginx-config.mjs",
     "verify:prod-env": "node scripts/validate-production-env.mjs"
   },
   "dependencies": {
