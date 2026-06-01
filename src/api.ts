@@ -41,6 +41,8 @@ const NO_TENANT_SESSION_MESSAGE = "No tenant session. Login or register a textil
 const SESSION_EXPIRED_MESSAGE = "Your session expired. Login again to continue.";
 const roundMoney = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 let accessTokenCache: string | null = null;
+let csrfTokenCache: string | null = null;
+let csrfTokenRequest: Promise<string> | null = null;
 
 type ApiEnvelope<T> = T & {
   success?: boolean;
@@ -82,11 +84,69 @@ function cacheAccessToken(accessToken: string) {
   localStorage.removeItem(LEGACY_ACCESS_KEY);
 }
 
+function isUnsafeMethod(method?: string) {
+  return !["GET", "HEAD", "OPTIONS", "TRACE"].includes((method || "GET").toUpperCase());
+}
+
+function readCookie(name: string) {
+  if (typeof document === "undefined") return "";
+  return document.cookie
+    .split(";")
+    .map(part => part.trim())
+    .find(part => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1) || "";
+}
+
+async function getCsrfToken() {
+  if (csrfTokenCache) return csrfTokenCache;
+
+  const cookieToken = readCookie("csrftoken");
+  if (cookieToken) {
+    csrfTokenCache = decodeURIComponent(cookieToken);
+    return csrfTokenCache;
+  }
+
+  if (!csrfTokenRequest) {
+    csrfTokenRequest = fetch(`${API_BASE}/auth/csrf`, {
+      method: "GET",
+      credentials: "include",
+      headers: { "Accept": "application/json" }
+    })
+      .then(response => readJson<{ csrfToken: string }>(response))
+      .then(data => {
+        csrfTokenCache = data.csrfToken || decodeURIComponent(readCookie("csrftoken"));
+        return csrfTokenCache || "";
+      })
+      .finally(() => {
+        csrfTokenRequest = null;
+      });
+  }
+
+  return csrfTokenRequest;
+}
+
+async function buildHeaders(baseHeaders?: HeadersInit, options: { method?: string; json?: boolean; authToken?: string } = {}) {
+  const headers = new Headers(baseHeaders);
+  if (options.json && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (options.authToken) {
+    headers.set("Authorization", `Bearer ${options.authToken}`);
+  }
+  if (isUnsafeMethod(options.method)) {
+    const csrfToken = await getCsrfToken();
+    if (csrfToken) {
+      headers.set("X-CSRFToken", csrfToken);
+    }
+  }
+  return headers;
+}
+
 async function refreshAccessToken(refreshOverride?: string) {
   const response = await fetch(`${API_BASE}/auth/token/refresh`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: await buildHeaders(undefined, { method: "POST", json: true }),
     body: JSON.stringify(refreshOverride ? { refresh: refreshOverride } : {})
   });
   const data = await readJson<{ access: string }>(response);
@@ -132,7 +192,7 @@ async function getAccessToken(forceRefresh = false) {
     const response = await fetch(`${API_BASE}/auth/demo-session`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: await buildHeaders(undefined, { method: "POST", json: true }),
       body: JSON.stringify({ mobile: "8608633066" })
     });
     const data = await readJson<{ tokens: { access: string } }>(response);
@@ -161,14 +221,17 @@ async function recoverAccessTokenAfterUnauthorized() {
 
 export function clearTenantSession() {
   accessTokenCache = null;
+  csrfTokenCache = null;
   markTenantSession(false);
   clearLegacyStoredTokens();
-  void fetch(`${API_BASE}/auth/logout`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({})
-  }).catch(() => undefined);
+  void (async () => {
+    await fetch(`${API_BASE}/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: await buildHeaders(undefined, { method: "POST", json: true }),
+      body: JSON.stringify({})
+    });
+  })().catch(() => undefined);
 }
 
 export function hasTenantSession() {
@@ -188,14 +251,11 @@ export async function startDemoSession() {
 
 async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): Promise<ApiEnvelope<T>> {
   const token = await getAccessToken();
+  const method = init.method || "GET";
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {})
-    }
+    headers: await buildHeaders(init.headers, { method, json: true, authToken: token })
   });
 
   if (response.status === 401 && retry) {
@@ -212,26 +272,22 @@ async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): 
 }
 
 async function publicApiFetch<T>(path: string, init: RequestInit = {}): Promise<ApiEnvelope<T>> {
+  const method = init.method || "GET";
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers ?? {})
-    }
+    headers: await buildHeaders(init.headers, { method, json: true })
   });
   return readJson<T>(response);
 }
 
 async function apiText(path: string, init: RequestInit = {}, retry = true): Promise<string> {
   const token = await getAccessToken();
+  const method = init.method || "GET";
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: "include",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {})
-    }
+    headers: await buildHeaders(init.headers, { method, authToken: token })
   });
 
   if (response.status === 401 && retry) {
@@ -253,13 +309,11 @@ async function apiText(path: string, init: RequestInit = {}, retry = true): Prom
 
 async function apiBlob(path: string, init: RequestInit = {}, retry = true): Promise<{ blob: Blob; filename: string }> {
   const token = await getAccessToken();
+  const method = init.method || "GET";
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     credentials: "include",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(init.headers ?? {})
-    }
+    headers: await buildHeaders(init.headers, { method, authToken: token })
   });
 
   if (response.status === 401 && retry) {
@@ -293,7 +347,7 @@ export async function sendLoginOtp(input: { mobile: string }) {
   const response = await fetch(`${API_BASE}/auth/send-otp`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: await buildHeaders(undefined, { method: "POST", json: true }),
     body: JSON.stringify({ mobile: input.mobile })
   });
   return readJson<{
@@ -307,7 +361,7 @@ export async function verifyLoginOtp(input: { mobile: string; otp: string }) {
   const response = await fetch(`${API_BASE}/auth/verify-otp`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: await buildHeaders(undefined, { method: "POST", json: true }),
     body: JSON.stringify({
       mobile: input.mobile,
       otp: input.otp
@@ -335,7 +389,7 @@ export async function registerTextileTenant(input: {
   const response = await fetch(`${API_BASE}/auth/register`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: await buildHeaders(undefined, { method: "POST", json: true }),
     body: JSON.stringify({
       business_name: input.businessName,
       owner_name: input.ownerName,

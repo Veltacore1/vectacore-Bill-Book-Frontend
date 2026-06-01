@@ -14,7 +14,7 @@ The app expects the backend API URL from `VITE_API_URL`. In local development it
 
 Copy `.env.example` to `.env.local` for local development or configure the same variables in CI/CD.
 
-Authentication uses short-lived access tokens in memory plus the backend's HttpOnly refresh cookie. The API origin must allow credentials for the frontend origin (`CORS_ALLOW_CREDENTIALS=True` on the backend, with `CORS_ALLOWED_ORIGINS` set to the deployed app URL).
+Authentication uses short-lived access tokens in memory plus the backend's HttpOnly refresh cookie. The frontend obtains a CSRF token from `/auth/csrf` and sends it as `X-CSRFToken` on unsafe requests. The API origin must allow credentials for the frontend origin (`CORS_ALLOW_CREDENTIALS=True` on the backend, with `CORS_ALLOWED_ORIGINS` set to the deployed app URL).
 
 ## CI/CD
 
