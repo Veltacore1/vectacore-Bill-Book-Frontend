@@ -6,9 +6,9 @@ COPY package*.json ./
 RUN npm ci
 
 COPY . .
-ARG VITE_API_URL=http://127.0.0.1:8001/api/v1
+ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
-RUN npm run build
+RUN npm run verify:prod-env && npm run build
 
 FROM nginx:1.27-alpine
 

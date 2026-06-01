@@ -23,7 +23,7 @@ GitHub Actions are included:
 - `Frontend CI`: runs a tracked-file secret scan, installs dependencies, runs ESLint, builds the Vite app, and uploads the `dist` artifact.
 - `Frontend Container CD`: builds and publishes a production Nginx image to GitHub Container Registry on `main`, tags, or manual dispatch.
 
-Set the repository variable `VITE_API_URL` in GitHub before production builds so the static bundle points to the deployed backend API.
+Set the repository variable `VITE_API_URL` in GitHub before production container builds so the static bundle points to the deployed backend API. Production image builds reject missing, localhost, and non-HTTPS API URLs.
 
 The production Nginx image serves immutable static assets, keeps the SPA shell uncached, and sends baseline security headers including CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy`.
 

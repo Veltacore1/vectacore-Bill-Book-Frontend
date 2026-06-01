@@ -46,13 +46,34 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Validate production API URL
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if [ -z "$VITE_API_URL" ]; then
+            echo "Set repository variable VITE_API_URL before publishing the production frontend image."
+            exit 1
+          fi
+          case "$VITE_API_URL" in
+            http://localhost*|http://127.0.0.1*|http://0.0.0.0*|http://\[::1\]*)
+              echo "VITE_API_URL must not point to localhost for production images."
+              exit 1
+              ;;
+            https://*)
+              ;;
+            *)
+              echo "VITE_API_URL must use HTTPS for production images."
+              exit 1
+              ;;
+          esac
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           build-args: |
-            VITE_API_URL=${{ vars.VITE_API_URL || 'http://127.0.0.1:8001/api/v1' }}
+            VITE_API_URL=${{ vars.VITE_API_URL }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
