@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   Box,
@@ -34,6 +35,7 @@ interface SidebarProps {
   businessPhone: string;
   modulePermissions?: ModulePermissions;
   onCreateInvoice: () => void;
+  onQuickCreate?: (tab: string) => void;
   onLogout: () => void;
 }
 
@@ -54,6 +56,16 @@ type SubItem = {
   action?: "view" | "create" | "manage";
   icon?: typeof Users;
   badge?: string;
+};
+
+type QuickCreateItem = {
+  id: string;
+  label: string;
+  description: string;
+  tab: string;
+  moduleKey: string;
+  action?: "view" | "create" | "manage";
+  icon: typeof Users;
 };
 
 const partyItems: SubItem[] = [
@@ -79,19 +91,6 @@ const purchaseItems: SubItem[] = [
   { id: "purchase-orders", label: "Purchase Orders", moduleKey: "purchases" }
 ];
 
-const placeholderTabs = [
-  "quotation",
-  "payment-in",
-  "sales-return",
-  "credit-note",
-  "delivery-challan",
-  "proforma-invoice",
-  "payment-out",
-  "purchase-return",
-  "debit-note",
-  "purchase-orders"
-];
-
 const initialsForBusiness = (name: string) =>
   (name || "VB")
     .split(/\s+/)
@@ -108,8 +107,11 @@ export default function Sidebar({
   businessPhone,
   modulePermissions,
   onCreateInvoice,
+  onQuickCreate,
   onLogout
 }: SidebarProps) {
+  const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
+  const quickCreateRef = useRef<HTMLDivElement | null>(null);
   const permissionSet = modulePermissions && Object.keys(modulePermissions).length ? modulePermissions : null;
 
   const hasPermission = (moduleKey: string, action: "view" | "create" | "manage" = "view") =>
@@ -117,6 +119,71 @@ export default function Sidebar({
   const hasAnyView = (moduleKeys: string[]) =>
     permissionSet === null || moduleKeys.some(moduleKey => getModulePermission(permissionSet, moduleKey).view);
   const canCreateSalesInvoice = hasPermission("sales", "create");
+  const quickCreateItems: QuickCreateItem[] = [
+    {
+      id: "sales-invoice-create",
+      label: "Sales Invoice",
+      description: "Create bill",
+      tab: "sales-invoice-create",
+      moduleKey: "sales",
+      action: "create",
+      icon: FileText
+    },
+    {
+      id: "quotation",
+      label: "Quotation / Estimate",
+      description: "Send estimate",
+      tab: "quotation",
+      moduleKey: "sales",
+      action: "create",
+      icon: Receipt
+    },
+    {
+      id: "payment-in",
+      label: "Payment In",
+      description: "Record receipt",
+      tab: "payment-in",
+      moduleKey: "payments",
+      action: "create",
+      icon: Landmark
+    },
+    {
+      id: "sales-return",
+      label: "Sales Return",
+      description: "Return voucher",
+      tab: "sales-return",
+      moduleKey: "sales",
+      action: "create",
+      icon: ShoppingBag
+    },
+    {
+      id: "credit-note",
+      label: "Credit Note",
+      description: "Customer credit",
+      tab: "credit-note",
+      moduleKey: "sales",
+      action: "create",
+      icon: FileClock
+    },
+    {
+      id: "delivery-challan",
+      label: "Delivery Challan",
+      description: "Dispatch goods",
+      tab: "delivery-challan",
+      moduleKey: "sales",
+      action: "create",
+      icon: ShoppingCart
+    },
+    {
+      id: "proforma-invoice",
+      label: "Proforma Invoice",
+      description: "Advance bill",
+      tab: "proforma-invoice",
+      moduleKey: "sales",
+      action: "create",
+      icon: Receipt
+    }
+  ];
 
   const navItems: NavItem[] = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, moduleKey: "dashboard" },
@@ -148,6 +215,7 @@ export default function Sidebar({
   const visibleNavItems = navItems.filter(item => hasAnyView([item.moduleKey, ...(item.alternateModuleKeys ?? [])]));
   const visibleAccountingItems = accountingItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view"));
   const visibleBusinessItems = businessItems.filter(item => hasPermission(item.moduleKey, item.action ?? "view"));
+  const visibleQuickCreateItems = quickCreateItems.filter(item => hasPermission(item.moduleKey, item.action ?? "create"));
   const canViewSettings = hasPermission("settings");
 
   const isPartiesActive = activeTab === "parties" || activeTab === "shared-ledger";
@@ -155,6 +223,51 @@ export default function Sidebar({
     activeTab.startsWith("sales") || salesItems.some(item => item.id === activeTab);
   const isPurchasesActive = activeTab === "purchases" || purchaseItems.some(item => item.id === activeTab);
   const isItemsActive = activeTab === "items" || activeTab === "godown";
+
+  useEffect(() => {
+    if (!isCreateMenuOpen) return;
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!quickCreateRef.current?.contains(event.target as Node)) {
+        setIsCreateMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsCreateMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [isCreateMenuOpen]);
+
+  useEffect(() => {
+    setIsCreateMenuOpen(false);
+  }, [activeTab]);
+
+  const handleMainCreateInvoice = () => {
+    setIsCreateMenuOpen(false);
+    onCreateInvoice();
+  };
+
+  const handleQuickCreate = (tab: string) => {
+    setIsCreateMenuOpen(false);
+    if (tab === "sales-invoice-create") {
+      onCreateInvoice();
+      return;
+    }
+    (onQuickCreate ?? setActiveTab)(tab);
+  };
+
+  const navigateTo = (tab: string) => {
+    setIsCreateMenuOpen(false);
+    setActiveTab(tab);
+  };
 
   const renderSubnav = (items: SubItem[], groupClass = "") => (
     <div className={`sidebar-subnav ${groupClass}`}>
@@ -168,7 +281,7 @@ export default function Sidebar({
           <button
             key={item.id}
             className={`sidebar-subnav-item ${active ? "active" : ""}`}
-            onClick={() => setActiveTab(item.id)}
+            onClick={() => navigateTo(item.id)}
             type="button"
           >
             {Icon && <Icon size={18} />}
@@ -198,10 +311,10 @@ export default function Sidebar({
         <button
           className={`sidebar-nav-item ${isActive ? "active" : ""}`}
           onClick={() => {
-            if (itemIsParties) setActiveTab("parties");
-            else if (itemIsSales) setActiveTab("sales-invoices");
-            else if (itemIsPurchases) setActiveTab("purchases");
-            else setActiveTab(item.id);
+            if (itemIsParties) navigateTo("parties");
+            else if (itemIsSales) navigateTo("sales-invoices");
+            else if (itemIsPurchases) navigateTo("purchases");
+            else navigateTo(item.id);
           }}
           type="button"
         >
@@ -217,13 +330,13 @@ export default function Sidebar({
         {itemIsItems && isItemsActive && (
           <div className="sidebar-subnav">
             {hasPermission("items") && (
-              <button className={`sidebar-subnav-item ${activeTab === "items" ? "active" : ""}`} onClick={() => setActiveTab("items")} type="button">
+              <button className={`sidebar-subnav-item ${activeTab === "items" ? "active" : ""}`} onClick={() => navigateTo("items")} type="button">
                 <Package size={18} />
                 <span>Inventory</span>
               </button>
             )}
             {hasPermission("stock") && (
-              <button className={`sidebar-subnav-item ${activeTab === "godown" ? "active" : ""}`} onClick={() => setActiveTab("godown")} type="button">
+              <button className={`sidebar-subnav-item ${activeTab === "godown" ? "active" : ""}`} onClick={() => navigateTo("godown")} type="button">
                 <Warehouse size={18} />
                 <span>Godown (Warehouse)</span>
               </button>
@@ -244,7 +357,7 @@ export default function Sidebar({
       <button
         key={item.id}
         className={`sidebar-nav-item ${activeTab === item.id ? "active" : ""}`}
-        onClick={() => setActiveTab(item.id)}
+        onClick={() => navigateTo(item.id)}
         type="button"
       >
         <span className="nav-left">
@@ -267,20 +380,56 @@ export default function Sidebar({
         </div>
       </div>
 
-      <button
-        className={`create-invoice-btn ${canCreateSalesInvoice ? "" : "permission-disabled"}`}
-        onClick={onCreateInvoice}
-        disabled={!canCreateSalesInvoice}
-        title={canCreateSalesInvoice ? "Create Sales Invoice" : "Your role can view sales but cannot create invoices"}
-        type="button"
-      >
-        <span className="btn-main-text">
-          <Plus size={18} />
-          {canCreateSalesInvoice ? "Create Sales Invoice" : "Sales Read Only"}
-        </span>
-        <span className="btn-divider" />
-        <ChevronDown size={18} />
-      </button>
+      <div className="create-invoice-wrap" ref={quickCreateRef}>
+        <div className={`create-invoice-btn ${canCreateSalesInvoice ? "" : "permission-disabled"} ${isCreateMenuOpen ? "menu-open" : ""}`}>
+          <button
+            className="create-invoice-main"
+            onClick={handleMainCreateInvoice}
+            disabled={!canCreateSalesInvoice}
+            title={canCreateSalesInvoice ? "Create Sales Invoice" : "Your role can view sales but cannot create invoices"}
+            type="button"
+          >
+            <span className="btn-main-text">
+              <Plus size={18} />
+              {canCreateSalesInvoice ? "Create Sales Invoice" : "Sales Read Only"}
+            </span>
+          </button>
+          <span className="btn-divider" />
+          <button
+            aria-expanded={isCreateMenuOpen}
+            aria-haspopup="menu"
+            aria-label="Open create menu"
+            className="create-invoice-toggle"
+            disabled={visibleQuickCreateItems.length === 0}
+            onClick={() => setIsCreateMenuOpen(current => !current)}
+            type="button"
+          >
+            <ChevronDown size={18} />
+          </button>
+        </div>
+
+        {isCreateMenuOpen && visibleQuickCreateItems.length > 0 && (
+          <div className="create-invoice-menu" role="menu" aria-label="Create sales document">
+            <div className="create-invoice-menu-heading">
+              <span>Create</span>
+              <strong>Sales Documents</strong>
+            </div>
+            {visibleQuickCreateItems.map(item => {
+              const Icon = item.icon;
+              return (
+                <button key={item.id} onClick={() => handleQuickCreate(item.tab)} role="menuitem" type="button">
+                  <Icon size={17} />
+                  <span>
+                    <strong>{item.label}</strong>
+                    <small>{item.description}</small>
+                  </span>
+                  <ChevronRight size={16} />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <nav className="sidebar-nav">
         <div className="sidebar-section-label">General</div>
@@ -309,7 +458,7 @@ export default function Sidebar({
       {canViewSettings && (
         <button
           className={`sidebar-nav-item sidebar-settings ${activeTab === "settings" ? "active" : ""}`}
-          onClick={() => setActiveTab("settings")}
+          onClick={() => navigateTo("settings")}
           type="button"
         >
           <span className="nav-left">
@@ -319,7 +468,10 @@ export default function Sidebar({
         </button>
       )}
 
-      <button className="sidebar-nav-item sidebar-logout" onClick={onLogout} type="button">
+      <button className="sidebar-nav-item sidebar-logout" onClick={() => {
+        setIsCreateMenuOpen(false);
+        onLogout();
+      }} type="button">
         <span className="nav-left">
           <LogOut className="nav-icon" size={18} />
           <span>Logout</span>
@@ -333,7 +485,6 @@ export default function Sidebar({
         </span>
         <span>ISO Certified</span>
       </div>
-      <span hidden>{placeholderTabs.length}</span>
     </aside>
   );
 }

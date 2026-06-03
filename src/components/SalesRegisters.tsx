@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   CalendarDays,
   ChevronDown,
@@ -113,6 +113,8 @@ interface SalesRegistersProps {
   items: Item[];
   invoices: SalesInvoice[];
   initialRows: Record<SalesRegisterView, SalesRegisterRow[]>;
+  autoCreateToken?: number;
+  onNavigate: (tab: string) => void;
   onWorkspaceRefresh?: () => Promise<void> | void;
 }
 
@@ -246,12 +248,16 @@ export default function SalesRegisters({
   items,
   invoices,
   initialRows,
+  autoCreateToken,
+  onNavigate,
   onWorkspaceRefresh
 }: SalesRegistersProps) {
   const [rowsByView, setRowsByView] = useState<Record<SalesRegisterView, SalesRegisterRow[]>>(initialRows);
   const [query, setQuery] = useState("");
   const [showOpenOnly, setShowOpenOnly] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showKeyboard, setShowKeyboard] = useState(false);
+  const [showBulkSummary, setShowBulkSummary] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState(() => createDraft(view, parties, items));
   const [syncNotice, setSyncNotice] = useState("");
@@ -260,6 +266,7 @@ export default function SalesRegisters({
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [editRow, setEditRow] = useState<SalesRegisterRow | null>(null);
   const [editDraft, setEditDraft] = useState<LifecycleEditDraft>({ linkedVoucher: "", validTill: "", notes: "" });
+  const createContextRef = useRef({ view, parties, items });
 
   const config = configs[view];
   const rows = rowsByView[view];
@@ -273,12 +280,18 @@ export default function SalesRegisters({
     setQuery("");
     setShowOpenOnly(false);
     setShowCreate(false);
+    setShowKeyboard(false);
+    setShowBulkSummary(false);
     setSelectedId(null);
     setSyncNotice("");
     setActionMenuId(null);
     setBusyActionId(null);
     setEditRow(null);
     setDraft(createDraft(view, parties, items));
+  }, [view, parties, items]);
+
+  useEffect(() => {
+    createContextRef.current = { view, parties, items };
   }, [view, parties, items]);
 
   const filteredRows = useMemo(() => {
@@ -314,6 +327,13 @@ export default function SalesRegisters({
     setDraft(createDraft(view, parties, items));
     setShowCreate(true);
   };
+
+  useEffect(() => {
+    if (!autoCreateToken) return;
+    const context = createContextRef.current;
+    setDraft(createDraft(context.view, context.parties, context.items));
+    setShowCreate(true);
+  }, [autoCreateToken]);
 
   const handleDraftChange = <Key extends keyof SalesRegisterDraft>(
     key: Key,
@@ -506,16 +526,16 @@ export default function SalesRegisters({
           <h1>{config.title}</h1>
           <div className="mbb-header-actions">
             {config.showReports && (
-              <button className="mbb-report-btn" type="button">
+              <button className="mbb-report-btn" onClick={() => onNavigate("reports")} type="button">
                 <FileBarChart size={16} />
                 Reports
                 <ChevronDown size={15} />
               </button>
             )}
-            <button className="mbb-icon-btn has-alert" aria-label="Settings" type="button">
+            <button className="mbb-icon-btn has-alert" aria-label="Settings" onClick={() => onNavigate("settings")} type="button">
               <Settings2 size={18} />
             </button>
-            <button className="mbb-icon-btn" aria-label="Keyboard shortcuts" type="button">
+            <button className={`mbb-icon-btn ${showKeyboard ? "active" : ""}`} aria-label="Keyboard shortcuts" onClick={() => setShowKeyboard(current => !current)} type="button">
               <Keyboard size={18} />
             </button>
           </div>
@@ -536,6 +556,17 @@ export default function SalesRegisters({
           <div className="tenant-api-banner">
             <strong>Postgres sync</strong>
             <span>{syncNotice}</span>
+          </div>
+        )}
+
+        {(showKeyboard || showBulkSummary) && (
+          <div className="sales-action-strip">
+            {showKeyboard && <span>Shortcuts: / search, Enter opens details, Ctrl+N creates the current sales document.</span>}
+            {showBulkSummary && (
+              <span>
+                {filteredRows.length} visible rows. Total value {formatMoney(filteredRows.reduce((total, row) => total + row.amount, 0))}.
+              </span>
+            )}
           </div>
         )}
 
@@ -565,7 +596,7 @@ export default function SalesRegisters({
           )}
           <div className="sales-toolbar-spacer" />
           {view !== "payment-in" && (
-            <button className="mbb-bulk-btn sales-bulk-btn" type="button">
+            <button className="mbb-bulk-btn sales-bulk-btn" onClick={() => setShowBulkSummary(current => !current)} type="button">
               <ClipboardList size={18} />
               Bulk Actions
               <ChevronDown size={17} />
@@ -658,7 +689,7 @@ export default function SalesRegisters({
           </table>
         </div>
 
-        <button className="mbb-help-bubble" aria-label="Help" type="button">
+        <button className="mbb-help-bubble" aria-label="Help" onClick={() => onNavigate("settings")} type="button">
           ?
         </button>
 

@@ -235,6 +235,7 @@ function SalesInvoiceList({ invoices, onCreate, onCancelInvoice, onNavigate, onO
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [showBulkSummary, setShowBulkSummary] = useState(false);
   const [openActionInvoiceId, setOpenActionInvoiceId] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const summary = invoices.reduce(
     (totals, invoice) => {
       totals.total += invoice.amount;
@@ -292,7 +293,7 @@ function SalesInvoiceList({ invoices, onCreate, onCancelInvoice, onNavigate, onO
       </div>
 
       <div className="sales-toolbar">
-        <button className="sales-square-btn" aria-label="Search invoices" type="button">
+        <button className="sales-square-btn" aria-label="Search invoices" onClick={() => searchInputRef.current?.focus()} type="button">
           <Search size={20} />
         </button>
         <label className="sales-filter-btn sales-search-field">
@@ -300,6 +301,7 @@ function SalesInvoiceList({ invoices, onCreate, onCancelInvoice, onNavigate, onO
             aria-label="Search sales invoices"
             onChange={event => setSearchQuery(event.target.value)}
             placeholder="Search invoices"
+            ref={searchInputRef}
             value={searchQuery}
           />
         </label>
@@ -439,7 +441,7 @@ function SalesInvoiceList({ invoices, onCreate, onCancelInvoice, onNavigate, onO
         </table>
       </div>
 
-      <button className="mbb-help-bubble" aria-label="Help" type="button">
+      <button className="mbb-help-bubble" aria-label="Help" onClick={() => onNavigate("settings")} type="button">
         ?
       </button>
     </div>
@@ -937,7 +939,7 @@ function CreateSalesInvoiceView({
         </section>
       </div>
 
-      <button className="mbb-help-bubble" aria-label="Help" type="button">
+      <button className="mbb-help-bubble" aria-label="Help" onClick={() => onNavigate("settings")} type="button">
         ?
       </button>
     </div>

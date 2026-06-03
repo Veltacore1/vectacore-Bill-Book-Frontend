@@ -26,26 +26,44 @@ import {
   X
 } from "lucide-react";
 import {
+  activateItemOffer,
   adjustItemStock,
   createBarcodeLabel,
   createBulkBarcodeLabels,
   createItem,
+  createItemOffer,
   deleteItem,
   deleteItemPartyPrice,
   getBarcodeLabelPrintHtml,
   getBarcodeLabelSizes,
+  getItemOffers,
   getItemPartyPrices,
+  pauseItemOffer,
   updateItem,
+  updateItemOffer,
   upsertItemPartyPrice,
   type BarcodeLabelOptions,
   type BarcodeLabelPriceSource,
   type BarcodeLabelSize
 } from "../api";
 import { getModulePermission } from "../types";
-import type { Godown, Item, ItemPartyPrice, ModulePermissions, Party } from "../types";
+import type { Godown, Item, ItemOffer, ItemOfferDiscountType, ItemOfferStatus, ItemPartyPrice, ModulePermissions, Party } from "../types";
 
 type ItemEditorTab = "basic" | "stock" | "pricing" | "party" | "custom";
 type ViewMode = "inventory" | "detail";
+
+type OfferDraft = {
+  id?: string;
+  itemId: string;
+  title: string;
+  discountType: ItemOfferDiscountType;
+  discountValue: number;
+  startsOn: string;
+  endsOn: string;
+  channel: string;
+  status: ItemOfferStatus;
+  notes: string;
+};
 
 type InventoryItem = Item & {
   itemCode: string;
@@ -115,6 +133,29 @@ const formatMoney = (amount: number, decimals = 0) =>
     maximumFractionDigits: decimals
   })}`;
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
+const offerPriceForItem = (item: InventoryItem, offer?: ItemOffer | null) => {
+  const activeOffer = offer ?? item.activeOffer;
+  if (!activeOffer || activeOffer.status !== "active") {
+    return item.price;
+  }
+  return activeOffer.offerPrice || item.price;
+};
+
+const makeOfferDraft = (item: InventoryItem, offer?: ItemOffer | null): OfferDraft => ({
+  id: offer?.id,
+  itemId: offer?.itemId || item.id,
+  title: offer?.title || `${item.name} offer`,
+  discountType: offer?.discountType || "percent",
+  discountValue: offer?.discountValue || 5,
+  startsOn: offer?.startsOn || todayIso(),
+  endsOn: offer?.endsOn || "",
+  channel: offer?.channel || "billing",
+  status: offer?.status || "active",
+  notes: offer?.notes || ""
+});
+
 const DEFAULT_BARCODE_OPTIONS: Required<Pick<BarcodeLabelOptions, "priceSource" | "includeBusinessName" | "includeItemName" | "includePrice" | "includeMrp">> = {
   priceSource: "selling",
   includeBusinessName: true,
@@ -154,6 +195,9 @@ export default function Items({
   const [barcodeOptions, setBarcodeOptions] = useState(DEFAULT_BARCODE_OPTIONS);
   const [isBulkBarcodePrinting, setIsBulkBarcodePrinting] = useState(false);
   const [barcodePreview, setBarcodePreview] = useState<{ title: string; html: string } | null>(null);
+  const [offers, setOffers] = useState<ItemOffer[]>([]);
+  const [offerDraft, setOfferDraft] = useState<OfferDraft | null>(null);
+  const [isOfferSaving, setIsOfferSaving] = useState(false);
   const itemPermission = getModulePermission(modulePermissions, "items", "admin");
   const stockPermission = getModulePermission(modulePermissions, "stock", "admin");
   const reportsPermission = getModulePermission(modulePermissions, "reports", "admin");
@@ -197,6 +241,23 @@ export default function Items({
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    getItemOffers()
+      .then(rows => {
+        if (mounted) setOffers(rows);
+      })
+      .catch(error => {
+        if (mounted) {
+          setItemsNotice(error instanceof Error ? error.message : "Item offers could not be loaded.");
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const categories = useMemo(
     () => ["all", ...Array.from(new Set(inventory.map(item => item.category)))],
     [inventory]
@@ -206,6 +267,18 @@ export default function Items({
     () => inventory.find(item => item.id === selectedItemId) ?? inventory[0],
     [inventory, selectedItemId]
   );
+
+  const activeOfferByItemId = useMemo(() => {
+    const map = new Map<string, ItemOffer>();
+    offers
+      .filter(offer => offer.status === "active")
+      .forEach(offer => {
+        if (!map.has(offer.itemId)) {
+          map.set(offer.itemId, offer);
+        }
+      });
+    return map;
+  }, [offers]);
 
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -493,11 +566,98 @@ export default function Items({
     }
   };
 
+  const offerForItem = (itemId: string) =>
+    activeOfferByItemId.get(itemId) || inventory.find(item => item.id === itemId)?.activeOffer || null;
+
+  const openOfferManager = (item?: InventoryItem) => {
+    if (!canManageItems) {
+      setItemsNotice("Your role can view inventory but cannot manage item offers.");
+      return;
+    }
+
+    const targetItem = item || selectedItem || inventory[0];
+    if (!targetItem) {
+      setItemsNotice("Create an item before launching an offer.");
+      return;
+    }
+
+    const existingOffer =
+      offerForItem(targetItem.id) ||
+      offers.find(offer => offer.itemId === targetItem.id) ||
+      null;
+    setOfferDraft(makeOfferDraft(targetItem, existingOffer));
+  };
+
+  const syncOfferIntoInventory = (offer: ItemOffer) => {
+    setInventory(current =>
+      current.map(item => {
+        if (item.id !== offer.itemId) return item;
+        const activeOffer = offer.status === "active"
+          ? offer
+          : item.activeOffer?.id === offer.id
+            ? null
+            : item.activeOffer;
+        return { ...item, activeOffer };
+      })
+    );
+  };
+
+  const saveOfferDraft = async () => {
+    if (!offerDraft) return;
+    const targetItem = inventory.find(item => item.id === offerDraft.itemId);
+    if (!targetItem) {
+      setItemsNotice("Choose a valid item for this offer.");
+      return;
+    }
+    if (!offerDraft.title.trim()) {
+      setItemsNotice("Enter an offer title before saving.");
+      return;
+    }
+    if (offerDraft.discountValue <= 0) {
+      setItemsNotice("Offer discount must be greater than zero.");
+      return;
+    }
+
+    try {
+      setIsOfferSaving(true);
+      const saved = offerDraft.id
+        ? await updateItemOffer({ ...offerDraft, id: offerDraft.id })
+        : await createItemOffer(offerDraft);
+      setOffers(current => [saved, ...current.filter(offer => offer.id !== saved.id)]);
+      syncOfferIntoInventory(saved);
+      setOfferDraft(makeOfferDraft(targetItem, saved));
+      setItemsNotice(`${saved.title} saved for ${saved.itemName || targetItem.name}.`);
+      await onWorkspaceRefresh();
+    } catch (error) {
+      setItemsNotice(error instanceof Error ? error.message : "Item offer could not be saved.");
+    } finally {
+      setIsOfferSaving(false);
+    }
+  };
+
+  const changeOfferStatus = async (offerId: string, action: "activate" | "pause") => {
+    try {
+      setIsOfferSaving(true);
+      const saved = action === "activate" ? await activateItemOffer(offerId) : await pauseItemOffer(offerId);
+      setOffers(current => [saved, ...current.filter(offer => offer.id !== saved.id)]);
+      syncOfferIntoInventory(saved);
+      const item = inventory.find(row => row.id === saved.itemId);
+      if (item) setOfferDraft(makeOfferDraft(item, saved));
+      setItemsNotice(`${saved.title} ${action === "activate" ? "activated" : "paused"}.`);
+      await onWorkspaceRefresh();
+    } catch (error) {
+      setItemsNotice(error instanceof Error ? error.message : "Offer status could not be changed.");
+    } finally {
+      setIsOfferSaving(false);
+    }
+  };
+
   return (
-    <div className="mbb-screen">
+    <div className="mbb-screen items-screen">
       {viewMode === "inventory" || !selectedItem ? (
         <InventoryList
           categories={categories}
+          activeOfferByItemId={activeOfferByItemId}
           filteredItems={filteredItems}
           lowStockCount={lowStockCount}
           lowStockOnly={lowStockOnly}
@@ -537,7 +697,7 @@ export default function Items({
           canViewSettings={canViewSettings}
           onNavigate={onNavigate}
           onDismissOffer={() => setItemsNotice("Offer banner dismissed for this session.")}
-          onManageOffer={() => setItemsNotice("No active item offers are configured for this tenant yet.")}
+          onManageOffer={openOfferManager}
           onToggleBulkSummary={() => setShowBulkSummary(current => !current)}
           onToggleShortcuts={() => setShowShortcuts(current => !current)}
         />
@@ -590,11 +750,26 @@ export default function Items({
           title={barcodePreview.title}
         />
       )}
+
+      {offerDraft && (
+        <ItemOfferModal
+          draft={offerDraft}
+          inventory={inventory}
+          isSaving={isOfferSaving}
+          offers={offers}
+          onActivate={(offerId) => changeOfferStatus(offerId, "activate")}
+          onCancel={() => setOfferDraft(null)}
+          onDraftChange={patch => setOfferDraft(current => current ? { ...current, ...patch } : current)}
+          onPause={(offerId) => changeOfferStatus(offerId, "pause")}
+          onSave={saveOfferDraft}
+        />
+      )}
     </div>
   );
 }
 
 interface InventoryListProps {
+  activeOfferByItemId: Map<string, ItemOffer>;
   barcodeCopies: number;
   barcodeLabelSize: string;
   barcodeLabelSizes: BarcodeLabelSize[];
@@ -613,7 +788,7 @@ interface InventoryListProps {
   onDeleteItem: (item: InventoryItem) => void;
   onDismissOffer: () => void;
   onEditItem: (item: InventoryItem, tab?: ItemEditorTab) => void;
-  onManageOffer: () => void;
+  onManageOffer: (item?: InventoryItem) => void;
   onNavigate: (tab: string) => void;
   onOpenDetail: (item: InventoryItem) => void;
   onPrintBarcode: (item: InventoryItem) => void;
@@ -641,6 +816,7 @@ interface InventoryListProps {
 }
 
 function InventoryList({
+  activeOfferByItemId,
   barcodeCopies,
   barcodeLabelSize,
   barcodeLabelSizes,
@@ -698,7 +874,7 @@ function InventoryList({
         <h1>Items</h1>
         <div className="mbb-header-actions">
           {canManageItems && (
-            <button className="mbb-outline-purple" onClick={onManageOffer} type="button">
+            <button className="mbb-outline-purple" onClick={() => onManageOffer()} type="button">
               <BadgePercent size={16} />
               Manage Offer
             </button>
@@ -729,7 +905,7 @@ function InventoryList({
           <span className="mbb-spark two" />
         </div>
         <span>Launch Offers on Your Items</span>
-        {canManageItems && <button onClick={onManageOffer} type="button">Create Offer Now</button>}
+        {canManageItems && <button onClick={() => onManageOffer()} type="button">Create Offer Now</button>}
         <button aria-label="Dismiss offer banner" className="mbb-offer-close" onClick={onDismissOffer} type="button">
           <X size={22} />
         </button>
@@ -948,7 +1124,10 @@ function InventoryList({
                 </td>
               </tr>
             )}
-            {filteredItems.map((item, index) => (
+            {filteredItems.map((item, index) => {
+              const activeOffer = activeOfferByItemId.get(item.id) || item.activeOffer || null;
+              const displayPrice = offerPriceForItem(item, activeOffer);
+              return (
               <tr
                 key={item.id}
                 className={index === 3 ? "is-selected-row" : ""}
@@ -969,10 +1148,24 @@ function InventoryList({
                 <td>
                   <div className="mbb-item-name">{item.name}</div>
                   <span className="mbb-category-chip">{item.category}</span>
+                  {activeOffer && (
+                    <span className="item-offer-chip">
+                      {activeOffer.title}
+                    </span>
+                  )}
                 </td>
                 <td>{item.itemCode}</td>
                 <td>{item.stock} PCS</td>
-                <td>{formatMoney(item.price)}</td>
+                <td>
+                  {activeOffer ? (
+                    <span className="item-offer-price">
+                      <strong>{formatMoney(displayPrice)}</strong>
+                      <small>{formatMoney(item.price)}</small>
+                    </span>
+                  ) : (
+                    formatMoney(item.price)
+                  )}
+                </td>
                 <td>{formatMoney(item.purchasePrice)}</td>
                 <td>{formatMoney(item.mrp)}</td>
                 <td>
@@ -1010,6 +1203,11 @@ function InventoryList({
                             </button>
                           )}
                           {canManageItems && (
+                            <button onClick={() => { setOpenActionItemId(null); onManageOffer(item); }} type="button">
+                              Manage Offer
+                            </button>
+                          )}
+                          {canManageItems && (
                             <button className="danger" onClick={() => { setOpenActionItemId(null); onDeleteItem(item); }} type="button">
                               Delete Item
                             </button>
@@ -1020,12 +1218,13 @@ function InventoryList({
                   )}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      <button className="mbb-help-bubble" aria-label="Help" type="button">
+      <button className="mbb-help-bubble" aria-label="Help" onClick={() => onNavigate("settings")} type="button">
         ?
       </button>
       <button className="mbb-pending-actions" onClick={onToggleLowStock} type="button">
@@ -1078,6 +1277,7 @@ function ItemDetailView({
 }: ItemDetailViewProps) {
   const discountAmount = Math.max(0, selectedItem.mrp - selectedItem.price);
   const discountPercent = selectedItem.mrp > 0 ? (discountAmount / selectedItem.mrp) * 100 : 0;
+  const offerPrice = offerPriceForItem(selectedItem, selectedItem.activeOffer);
 
   return (
     <div className="mbb-detail-shell">
@@ -1212,6 +1412,7 @@ function ItemDetailView({
               </header>
               <div className="mbb-pricing-grid">
                 <DetailField label="Sales Price" value={`${formatMoney(selectedItem.price)} With Tax`} />
+                {selectedItem.activeOffer && <DetailField label="Active Offer Price" value={formatMoney(offerPrice)} tone="green" />}
                 <DetailField label="Purchase Price" value={`${formatMoney(selectedItem.purchasePrice)} Without Tax`} />
                 <DetailField label="MRP" value={formatMoney(selectedItem.mrp)} />
                 <DetailField label="Disc. on MRP" value={`${discountPercent.toFixed(2)}% (${formatMoney(discountAmount, 2)})`} />
@@ -1916,6 +2117,163 @@ function PriceInput({ label, onChange, showInfo, trailing, value }: PriceInputPr
         )}
       </div>
     </label>
+  );
+}
+
+function ItemOfferModal({
+  draft,
+  inventory,
+  isSaving,
+  offers,
+  onActivate,
+  onCancel,
+  onDraftChange,
+  onPause,
+  onSave
+}: {
+  draft: OfferDraft;
+  inventory: InventoryItem[];
+  isSaving: boolean;
+  offers: ItemOffer[];
+  onActivate: (offerId: string) => void;
+  onCancel: () => void;
+  onDraftChange: (patch: Partial<OfferDraft>) => void;
+  onPause: (offerId: string) => void;
+  onSave: () => void;
+}) {
+  const selectedItem = inventory.find(item => item.id === draft.itemId) || inventory[0];
+  const basePrice = selectedItem?.price || 0;
+  const discount = Math.max(0, Number(draft.discountValue) || 0);
+  const previewPrice = draft.discountType === "flat"
+    ? Math.max(0, basePrice - discount)
+    : Math.max(0, basePrice - (basePrice * discount / 100));
+  const itemOffers = offers.filter(offer => offer.itemId === draft.itemId);
+
+  return (
+    <div className="sales-register-modal-backdrop">
+      <div className="sales-register-modal item-offer-modal">
+        <div className="sales-register-modal-header">
+          <div>
+            <h2>Manage Item Offer</h2>
+            <span>{selectedItem?.name || "Select item"}</span>
+          </div>
+          <button type="button" onClick={onCancel} aria-label="Close">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="item-offer-preview">
+          <div>
+            <span>Current Price</span>
+            <strong>{formatMoney(basePrice)}</strong>
+          </div>
+          <div>
+            <span>Offer Price</span>
+            <strong>{formatMoney(previewPrice)}</strong>
+          </div>
+          <div>
+            <span>Discount</span>
+            <strong>{draft.discountType === "percent" ? `${discount}%` : formatMoney(discount)}</strong>
+          </div>
+        </div>
+
+        <div className="sales-register-form-grid item-offer-grid">
+          <label className="wide">
+            <span>Item</span>
+            <select value={draft.itemId} onChange={event => {
+              const item = inventory.find(row => row.id === event.target.value);
+              onDraftChange({
+                itemId: event.target.value,
+                title: item ? `${item.name} offer` : draft.title
+              });
+            }}>
+              {inventory.map(item => (
+                <option key={item.id} value={item.id}>
+                  {item.name} - {item.itemCode || "No code"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="wide">
+            <span>Offer Title</span>
+            <input value={draft.title} onChange={event => onDraftChange({ title: event.target.value })} />
+          </label>
+          <label>
+            <span>Discount Type</span>
+            <select value={draft.discountType} onChange={event => onDraftChange({ discountType: event.target.value as ItemOfferDiscountType })}>
+              <option value="percent">Percentage</option>
+              <option value="flat">Flat Amount</option>
+            </select>
+          </label>
+          <label>
+            <span>Discount Value</span>
+            <input
+              min="0"
+              type="number"
+              value={draft.discountValue}
+              onChange={event => onDraftChange({ discountValue: Number(event.target.value) || 0 })}
+            />
+          </label>
+          <label>
+            <span>Starts On</span>
+            <input type="date" value={draft.startsOn} onChange={event => onDraftChange({ startsOn: event.target.value })} />
+          </label>
+          <label>
+            <span>Ends On</span>
+            <input type="date" value={draft.endsOn} onChange={event => onDraftChange({ endsOn: event.target.value })} />
+          </label>
+          <label>
+            <span>Channel</span>
+            <select value={draft.channel} onChange={event => onDraftChange({ channel: event.target.value })}>
+              <option value="billing">Billing</option>
+              <option value="pos">POS</option>
+              <option value="online_store">Online Store</option>
+              <option value="all">All Channels</option>
+            </select>
+          </label>
+          <label>
+            <span>Status</span>
+            <select value={draft.status} onChange={event => onDraftChange({ status: event.target.value as ItemOfferStatus })}>
+              <option value="active">Active</option>
+              <option value="draft">Draft</option>
+              <option value="paused">Paused</option>
+              <option value="expired">Expired</option>
+            </select>
+          </label>
+          <label className="wide">
+            <span>Notes</span>
+            <textarea value={draft.notes} onChange={event => onDraftChange({ notes: event.target.value })} />
+          </label>
+        </div>
+
+        {itemOffers.length > 0 && (
+          <div className="item-offer-history">
+            <strong>Offer History</strong>
+            {itemOffers.slice(0, 5).map(offer => (
+              <div className="item-offer-history-row" key={offer.id}>
+                <div>
+                  <span>{offer.title}</span>
+                  <small>{formatMoney(offer.offerPrice)} from {formatMoney(offer.sellingPrice)}</small>
+                </div>
+                <span className={`sales-status-pill sales-register-status ${offer.status}`}>{offer.status}</span>
+                {offer.status === "active" ? (
+                  <button type="button" disabled={isSaving} onClick={() => onPause(offer.id)}>Pause</button>
+                ) : (
+                  <button type="button" disabled={isSaving} onClick={() => onActivate(offer.id)}>Activate</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="sales-register-modal-footer">
+          <button type="button" className="mbb-bulk-btn" onClick={onCancel}>Close</button>
+          <button type="button" className="mbb-primary-btn" onClick={onSave} disabled={isSaving || !selectedItem}>
+            {isSaving ? "Saving..." : "Save Offer"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

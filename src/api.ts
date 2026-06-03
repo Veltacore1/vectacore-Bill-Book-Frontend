@@ -5,6 +5,7 @@ import type {
   BusinessNotification,
   InvoiceItem,
   Item,
+  ItemOffer,
   ItemPartyPrice,
   OnlineOrder,
   Party,
@@ -19,6 +20,7 @@ import type {
   PaymentGatewayOrder,
   PaymentSettlement,
   PurchaseRegisterRow,
+  ReferralInvite,
   ReportDefinition,
   SalesRegisterDataRow,
   SMSCampaign,
@@ -28,6 +30,7 @@ import type {
   StaffPayrollReport,
   StaffPayrollRow,
   StockMovement,
+  SupportTicket,
   WorkspaceData
 } from "./types";
 
@@ -157,6 +160,19 @@ async function refreshAccessToken(refreshOverride?: string) {
   return data.access;
 }
 
+async function requestDemoSession() {
+  const response = await fetch(`${API_BASE}/auth/demo-session`, {
+    method: "POST",
+    credentials: "include",
+    headers: await buildHeaders(undefined, { method: "POST", json: true }),
+    body: JSON.stringify({ mobile: "8608633066" })
+  });
+  const data = await readJson<{ tokens: { access: string } }>(response);
+  cacheAccessToken(data.tokens.access);
+  clearLegacyStoredTokens();
+  return data.tokens.access;
+}
+
 async function getAccessToken(forceRefresh = false) {
   if (!forceRefresh && accessTokenCache) {
     return accessTokenCache;
@@ -189,16 +205,7 @@ async function getAccessToken(forceRefresh = false) {
   }
 
   try {
-    const response = await fetch(`${API_BASE}/auth/demo-session`, {
-      method: "POST",
-      credentials: "include",
-      headers: await buildHeaders(undefined, { method: "POST", json: true }),
-      body: JSON.stringify({ mobile: "8608633066" })
-    });
-    const data = await readJson<{ tokens: { access: string } }>(response);
-    cacheAccessToken(data.tokens.access);
-    clearLegacyStoredTokens();
-    return data.tokens.access;
+    return await requestDemoSession();
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message.includes("Seeded tenant user not found") || message.includes("Demo session is disabled")) {
@@ -246,7 +253,7 @@ export async function startDemoSession() {
   accessTokenCache = null;
   markTenantSession(false);
   clearLegacyStoredTokens();
-  await getAccessToken(true);
+  await requestDemoSession();
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}, retry = true): Promise<ApiEnvelope<T>> {
@@ -592,6 +599,110 @@ export async function revokeCAReportSharing(input: { recipient?: string } = {}) 
     revokedCount: Number(response.revokedCount ?? 0),
     message: response.message
   };
+}
+
+function mapReferralInvite(data: any): ReferralInvite {
+  return {
+    id: data.id,
+    referralCode: data.referral_code || data.referralCode || "",
+    businessName: data.business_name || data.businessName || "",
+    contactName: data.contact_name || data.contactName || "",
+    mobile: data.mobile || "",
+    status: data.status || "invited",
+    rewardLabel: data.reward_label || data.rewardLabel || "Pending",
+    notes: data.notes || "",
+    activatedAt: formatApiDate((data.activated_at || data.activatedAt || "").slice(0, 10)),
+    createdAt: formatApiDate((data.created_at || data.createdAt || "").slice(0, 10))
+  };
+}
+
+export async function getReferralInvites() {
+  const data = await apiFetch<any[]>("/settings/referral-invites/");
+  return (Array.isArray(data) ? data : []).map(mapReferralInvite);
+}
+
+export async function createReferralInvite(input: {
+  businessName: string;
+  contactName: string;
+  mobile: string;
+  notes: string;
+}) {
+  const data = await apiFetch<any>("/settings/referral-invites/", {
+    method: "POST",
+    body: JSON.stringify({
+      business_name: input.businessName,
+      contact_name: input.contactName,
+      mobile: input.mobile,
+      notes: input.notes
+    })
+  });
+  return mapReferralInvite(data);
+}
+
+export async function markReferralInviteActivated(inviteId: string) {
+  const data = await apiFetch<{ invite: any }>(`/settings/referral-invites/${inviteId}/mark_activated/`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return mapReferralInvite(data.invite);
+}
+
+function mapSupportTicket(data: any): SupportTicket {
+  return {
+    id: data.id,
+    ticketNumber: data.ticket_number || data.ticketNumber || "",
+    subject: data.subject || "",
+    category: data.category || "billing",
+    channel: data.channel || "chat",
+    priority: data.priority || "medium",
+    message: data.message || "",
+    contactName: data.contact_name || data.contactName || "",
+    contactMobile: data.contact_mobile || data.contactMobile || "",
+    contactEmail: data.contact_email || data.contactEmail || "",
+    status: data.status || "open",
+    resolvedAt: formatApiDate((data.resolved_at || data.resolvedAt || "").slice(0, 10)),
+    createdAt: formatApiDate((data.created_at || data.createdAt || "").slice(0, 10))
+  };
+}
+
+export async function getSupportTickets(status?: SupportTicket["status"] | "all") {
+  const query = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : "";
+  const data = await apiFetch<any[]>(`/settings/support-tickets/${query}`);
+  return (Array.isArray(data) ? data : []).map(mapSupportTicket);
+}
+
+export async function createSupportTicket(input: {
+  subject: string;
+  category: SupportTicket["category"];
+  channel: SupportTicket["channel"];
+  priority: SupportTicket["priority"];
+  message: string;
+  contactName: string;
+  contactMobile: string;
+  contactEmail: string;
+}) {
+  const data = await apiFetch<any>("/settings/support-tickets/", {
+    method: "POST",
+    body: JSON.stringify({
+      subject: input.subject,
+      category: input.category,
+      channel: input.channel,
+      priority: input.priority,
+      message: input.message,
+      contact_name: input.contactName,
+      contact_mobile: input.contactMobile,
+      contact_email: input.contactEmail
+    })
+  });
+  return mapSupportTicket(data);
+}
+
+export async function resolveSupportTicket(ticketId: string) {
+  const data = await apiFetch<{ ticket: any }>(`/settings/support-tickets/${ticketId}/resolve/`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return mapSupportTicket(data.ticket);
 }
 
 export async function getPendingNotifications() {
@@ -967,7 +1078,29 @@ function mapItem(data: any): Item {
     grn: data.grn_date || data.grnDate || data.grn || "",
     grnDate: data.grn_date || data.grnDate || data.grn || "",
     billNo: data.bill_no || data.billNo || "",
-    description: data.description || ""
+    description: data.description || "",
+    activeOffer: data.active_offer ? mapItemOffer(data.active_offer) : (data.activeOffer ?? null)
+  };
+}
+
+function mapItemOffer(data: any): ItemOffer {
+  return {
+    id: data.id,
+    itemId: data.item || data.itemId || "",
+    itemName: data.item_name || data.itemName || "",
+    itemCode: data.item_code || data.itemCode || "",
+    title: data.title || "",
+    discountType: data.discount_type || data.discountType || "percent",
+    discountValue: Number(data.discount_value ?? data.discountValue ?? 0),
+    sellingPrice: Number(data.selling_price ?? data.sellingPrice ?? 0),
+    offerPrice: Number(data.offer_price ?? data.offerPrice ?? 0),
+    startsOn: data.starts_on || data.startsOn || "",
+    endsOn: data.ends_on || data.endsOn || "",
+    channel: data.channel || "billing",
+    status: data.status || "active",
+    notes: data.notes || "",
+    createdAt: data.created_at || data.createdAt || "",
+    updatedAt: data.updated_at || data.updatedAt || ""
   };
 }
 
@@ -1126,6 +1259,87 @@ export async function deleteItemPartyPrice(priceId: string) {
   await apiFetch<Record<string, never>>(`/items/party-prices/${priceId}/`, {
     method: "DELETE"
   });
+}
+
+export async function getItemOffers(input: { itemId?: string; status?: string } = {}) {
+  const params = new URLSearchParams();
+  if (input.itemId) params.set("item", input.itemId);
+  if (input.status) params.set("status", input.status);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  const data = await apiFetch<any[]>(`/items/offers/${query}`);
+  return data.map(mapItemOffer);
+}
+
+export async function createItemOffer(input: {
+  itemId: string;
+  title: string;
+  discountType: "percent" | "flat";
+  discountValue: number;
+  startsOn?: string;
+  endsOn?: string;
+  channel?: string;
+  status?: "draft" | "active" | "paused" | "expired";
+  notes?: string;
+}) {
+  const data = await apiFetch<any>("/items/offers/", {
+    method: "POST",
+    body: JSON.stringify({
+      item: input.itemId,
+      title: input.title,
+      discount_type: input.discountType,
+      discount_value: input.discountValue,
+      starts_on: input.startsOn || null,
+      ends_on: input.endsOn || null,
+      channel: input.channel || "billing",
+      status: input.status || "active",
+      notes: input.notes || ""
+    })
+  });
+  return mapItemOffer(data);
+}
+
+export async function updateItemOffer(input: {
+  id: string;
+  title?: string;
+  discountType?: "percent" | "flat";
+  discountValue?: number;
+  startsOn?: string;
+  endsOn?: string;
+  channel?: string;
+  status?: "draft" | "active" | "paused" | "expired";
+  notes?: string;
+}) {
+  const payload: Record<string, unknown> = {};
+  if (input.title !== undefined) payload.title = input.title;
+  if (input.discountType !== undefined) payload.discount_type = input.discountType;
+  if (input.discountValue !== undefined) payload.discount_value = input.discountValue;
+  if (input.startsOn !== undefined) payload.starts_on = input.startsOn || null;
+  if (input.endsOn !== undefined) payload.ends_on = input.endsOn || null;
+  if (input.channel !== undefined) payload.channel = input.channel;
+  if (input.status !== undefined) payload.status = input.status;
+  if (input.notes !== undefined) payload.notes = input.notes;
+
+  const data = await apiFetch<any>(`/items/offers/${input.id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload)
+  });
+  return mapItemOffer(data);
+}
+
+export async function activateItemOffer(offerId: string) {
+  const data = await apiFetch<{ offer: any }>(`/items/offers/${offerId}/activate/`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return mapItemOffer(data.offer);
+}
+
+export async function pauseItemOffer(offerId: string) {
+  const data = await apiFetch<{ offer: any }>(`/items/offers/${offerId}/pause/`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return mapItemOffer(data.offer);
 }
 
 export type BarcodeLabelResult = {
@@ -1385,7 +1599,7 @@ export async function transferItemStock(input: {
 }
 
 export async function createSalesInvoice(input: {
-  partyId: string;
+  partyId?: string;
   items: InvoiceItem[];
   subtotal: number;
   total: number;
@@ -1432,7 +1646,7 @@ export async function createSalesInvoice(input: {
   const data = await apiFetch<any>("/sales/invoices/", {
     method: "POST",
     body: JSON.stringify({
-      party: input.partyId,
+      ...(input.partyId ? { party: input.partyId } : {}),
       subtotal,
       discount_amount: discountAmount,
       discount_pct: subtotal > 0 ? roundMoney((discountAmount / subtotal) * 100) : 0,
@@ -2543,6 +2757,21 @@ export async function deleteTenantUser(userId: string) {
   });
 }
 
+export async function updateTenantUser(userId: string, input: {
+  firstName: string;
+  role: string;
+  isActive: boolean;
+}) {
+  return apiFetch<any>(`/auth/users/${userId}/`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      first_name: input.firstName,
+      role: input.role,
+      is_active: input.isActive
+    })
+  });
+}
+
 function mapOnlineOrder(data: any): OnlineOrder {
   return {
     id: data.id,
@@ -2706,6 +2935,28 @@ export async function createSmsCampaign(input: {
 
 export async function syncSmsCampaignDelivery(campaignId: string) {
   const data = await apiFetch<{ campaign: any; message?: string }>(`/business-tools/sms-campaigns/${campaignId}/sync_delivery/`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return {
+    campaign: mapSmsCampaign(data.campaign),
+    message: data.message || ""
+  };
+}
+
+export async function queueSmsCampaign(campaignId: string) {
+  const data = await apiFetch<{ campaign: any; message?: string }>(`/business-tools/sms-campaigns/${campaignId}/queue/`, {
+    method: "POST",
+    body: JSON.stringify({})
+  });
+  return {
+    campaign: mapSmsCampaign(data.campaign),
+    message: data.message || ""
+  };
+}
+
+export async function cancelSmsCampaign(campaignId: string) {
+  const data = await apiFetch<{ campaign: any; message?: string }>(`/business-tools/sms-campaigns/${campaignId}/cancel/`, {
     method: "POST",
     body: JSON.stringify({})
   });

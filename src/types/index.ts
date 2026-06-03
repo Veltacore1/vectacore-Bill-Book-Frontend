@@ -265,6 +265,7 @@ export interface Item {
     billNo: string;
   };
   description?: string;
+  activeOffer?: ItemOffer | null;
 }
 
 export interface ItemPartyPrice {
@@ -275,6 +276,28 @@ export interface ItemPartyPrice {
   partyMobile: string;
   salesPrice: number;
   taxInclusive: boolean;
+}
+
+export type ItemOfferStatus = "draft" | "active" | "paused" | "expired";
+export type ItemOfferDiscountType = "percent" | "flat";
+
+export interface ItemOffer {
+  id: string;
+  itemId: string;
+  itemName: string;
+  itemCode: string;
+  title: string;
+  discountType: ItemOfferDiscountType;
+  discountValue: number;
+  sellingPrice: number;
+  offerPrice: number;
+  startsOn: string;
+  endsOn: string;
+  channel: string;
+  status: ItemOfferStatus;
+  notes: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Godown {
@@ -764,6 +787,35 @@ export interface BusinessToolsData {
   smsMarketing: SMSMarketingData;
 }
 
+export interface ReferralInvite {
+  id: string;
+  referralCode: string;
+  businessName: string;
+  contactName: string;
+  mobile: string;
+  status: "invited" | "activated" | "rewarded" | "expired";
+  rewardLabel: string;
+  notes: string;
+  activatedAt: string;
+  createdAt: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  ticketNumber: string;
+  subject: string;
+  category: "billing" | "reports" | "subscription" | "technical" | "account";
+  channel: "chat" | "call" | "email";
+  priority: "low" | "medium" | "high";
+  message: string;
+  contactName: string;
+  contactMobile: string;
+  contactEmail: string;
+  status: "open" | "in_progress" | "resolved" | "closed";
+  resolvedAt: string;
+  createdAt: string;
+}
+
 export interface SettingsData {
   account: {
     id: string;
@@ -864,6 +916,9 @@ export interface DashboardData {
     count: number;
     target: string;
     status: string;
+    priority?: "high" | "medium" | "low";
+    description?: string;
+    ctaLabel?: string;
   }>;
 }
 
@@ -894,9 +949,15 @@ export interface ProviderStatus {
 }
 
 export interface WorkspaceData {
+  realtime?: {
+    syncedAt: string;
+    version: string;
+    latestActivityAt: string;
+  };
   business: Business;
   providerStatus?: {
     eInvoice: ProviderStatus;
+    eWayBill?: ProviderStatus;
     sms: ProviderStatus;
     email?: ProviderStatus;
     paymentGateway?: ProviderStatus;

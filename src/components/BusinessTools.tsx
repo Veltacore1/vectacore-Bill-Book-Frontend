@@ -16,20 +16,25 @@ import {
   IndianRupee,
   LockKeyhole,
   Megaphone,
+  MoreVertical,
   PackageCheck,
+  Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Settings,
   Shield,
   ShoppingCart,
   Store,
   Printer,
+  Trash2,
   Truck,
   UserCog,
   Users
 } from "lucide-react";
 import {
+  cancelSmsCampaign,
   createOnlineOrder,
   createOnlineOrderShipment,
   createSmsCampaign,
@@ -44,7 +49,9 @@ import {
   markStaffPayrollPaid,
   syncSmsCampaignDelivery,
   syncOnlineOrderShipping,
+  queueSmsCampaign,
   updateBusinessSettings,
+  updateTenantUser,
   updateOnlineOrderStatus
 } from "../api";
 import type {
@@ -103,6 +110,7 @@ const attendanceOptions = [
   { value: "half_day", label: "Half Day" },
   { value: "absent", label: "Absent" }
 ] as const;
+type AttendanceStatusValue = typeof attendanceOptions[number]["value"];
 const formatMoney = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 const settingsItems = [
   { label: "Account", Icon: Users },
@@ -115,6 +123,32 @@ const settingsItems = [
   { label: "Pricing", Icon: CircleHelp },
   { label: "Refer & Earn", Icon: Gift },
   { label: "Help And Support", Icon: HelpCircle }
+];
+const roleLabels: Record<string, string> = {
+  admin: "Admin",
+  partner: "Partner",
+  salesman: "Salesman (Without edit access)",
+  accountant: "Accountant",
+  stock_manager: "Stock Manager"
+};
+const roleOptions = [
+  { value: "salesman", label: roleLabels.salesman },
+  { value: "stock_manager", label: roleLabels.stock_manager },
+  { value: "accountant", label: roleLabels.accountant },
+  { value: "partner", label: roleLabels.partner },
+  { value: "admin", label: roleLabels.admin }
+];
+const userPermissionModules = ["parties", "items", "sales", "purchases", "payments", "accounting", "staff", "settings"] as const;
+const roleLabel = (role: string) => roleLabels[role] ?? role.replace(/_/g, " ");
+const cleanDeletedUserName = (name: string) => name.replace(/\s+\(Deleted\)$/i, "").trim();
+type OnlineOrderStatusFilter = "all" | OnlineOrder["dispatchStatus"];
+const onlineOrderStatusTabs: Array<{ value: OnlineOrderStatusFilter; label: string }> = [
+  { value: "all", label: "All Orders" },
+  { value: "new", label: "New" },
+  { value: "packed", label: "Packed" },
+  { value: "shipped", label: "Shipped" },
+  { value: "delivered", label: "Delivered" },
+  { value: "cancelled", label: "Cancelled" }
 ];
 const initialsFor = (name: string) =>
   (name || "Business")
@@ -254,6 +288,7 @@ function StaffAttendanceView({
   const [showCreate, setShowCreate] = useState(false);
   const [notice, setNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [registerMode, setRegisterMode] = useState<"attendance" | "payroll">("attendance");
   const [payrollMonth, setPayrollMonth] = useState(currentMonthValue());
   const [payrollReport, setPayrollReport] = useState<StaffPayrollReport | null>(null);
   const [notifications, setNotifications] = useState<PendingNotifications>(emptyPendingNotifications);
@@ -307,7 +342,7 @@ function StaffAttendanceView({
     void loadPayrollData();
   }, [loadPayrollData]);
 
-  const updateAttendance = async (staffId: string, status: "present" | "absent" | "half_day") => {
+  const updateAttendance = async (staffId: string, status: AttendanceStatusValue) => {
     if (!canWriteStaff) {
       setNotice("Your role can view staff attendance but cannot update attendance.");
       return;
@@ -320,6 +355,30 @@ function StaffAttendanceView({
       setNotice("Attendance saved to Postgres.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Attendance could not be saved.");
+    }
+  };
+
+  const bulkUpdateAttendance = async (status: AttendanceStatusValue) => {
+    if (!canWriteStaff) {
+      setNotice("Your role can view staff attendance but cannot update attendance.");
+      return;
+    }
+    if (!filteredStaff.length) {
+      setNotice("No staff rows match the current search.");
+      return;
+    }
+
+    filteredStaff.forEach(member => onAttendanceChange(member.id, attendanceDate, status));
+    try {
+      await markStaffAttendance({
+        date: attendanceDate,
+        records: filteredStaff.map(member => ({ staffId: member.id, status }))
+      });
+      await onWorkspaceRefresh();
+      await loadPayrollData();
+      setNotice(`${filteredStaff.length} staff marked ${status.replace("_", " ")} for ${formatDisplayDate(attendanceDate)}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Bulk attendance could not be saved.");
     }
   };
 
@@ -488,47 +547,84 @@ function StaffAttendanceView({
           <label className="sales-search-field">
             <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search staff" />
           </label>
-          <label className="sales-filter-btn payroll-date-picker">
-            <CalendarCheck size={16} />
-            <span>Attendance</span>
-            <input
-              aria-label="Attendance date"
-              type="date"
-              value={attendanceDate}
-              onChange={event => setAttendanceDate(event.target.value)}
-            />
+          {registerMode === "attendance" && (
+            <label className="sales-filter-btn payroll-date-picker">
+              <CalendarCheck size={16} />
+              <span>Attendance</span>
+              <input
+                aria-label="Attendance date"
+                type="date"
+                value={attendanceDate}
+                onChange={event => setAttendanceDate(event.target.value)}
+              />
+            </label>
+          )}
+          <label className="sales-filter-btn payroll-register-picker">
+            <FileText size={16} />
+            <select
+              aria-label="Staff register"
+              value={registerMode}
+              onChange={event => setRegisterMode(event.target.value as "attendance" | "payroll")}
+            >
+              <option value="attendance">Attendance Register</option>
+              <option value="payroll">Payroll Register</option>
+            </select>
           </label>
-          <label className="sales-filter-btn payroll-month-picker">
-            <span>Payroll Month</span>
-            <input type="month" value={payrollMonth} onChange={event => setPayrollMonth(event.target.value)} />
-          </label>
-          <button className="mbb-bulk-btn payroll-export-btn" onClick={exportPayrollCsv} disabled={!payrollReport} type="button">
-            <Download size={16} />
-            CSV
-          </button>
-          <button className="mbb-bulk-btn payroll-export-btn" onClick={printPayrollReport} disabled={!payrollReport} type="button">
-            <Printer size={16} />
-            Print
-          </button>
-          <button className="mbb-primary-btn payroll-generate-btn" onClick={generatePayroll} disabled={!canWriteStaff || isGeneratingPayroll} type="button">
-            <RefreshCw size={16} />
-            {isGeneratingPayroll ? "Generating..." : "Generate Payroll"}
-          </button>
+          {registerMode === "attendance" ? (
+            <div className="payroll-bulk-attendance">
+              <button className="mbb-bulk-btn" onClick={() => bulkUpdateAttendance("present")} disabled={!canWriteStaff || !filteredStaff.length} type="button">
+                <CheckCircle2 size={15} />
+                Mark Present
+              </button>
+              <button className="mbb-bulk-btn" onClick={() => bulkUpdateAttendance("absent")} disabled={!canWriteStaff || !filteredStaff.length} type="button">
+                Mark Absent
+              </button>
+            </div>
+          ) : (
+            <>
+              <label className="sales-filter-btn payroll-month-picker">
+                <span>Payroll Month</span>
+                <input type="month" value={payrollMonth} onChange={event => setPayrollMonth(event.target.value)} />
+              </label>
+              <button className="mbb-bulk-btn payroll-export-btn" onClick={exportPayrollCsv} disabled={!payrollReport} type="button">
+                <Download size={16} />
+                CSV
+              </button>
+              <button className="mbb-bulk-btn payroll-export-btn" onClick={printPayrollReport} disabled={!payrollReport} type="button">
+                <Printer size={16} />
+                Print
+              </button>
+              <button className="mbb-primary-btn payroll-generate-btn" onClick={generatePayroll} disabled={!canWriteStaff || isGeneratingPayroll} type="button">
+                <RefreshCw size={16} />
+                {isGeneratingPayroll ? "Generating..." : "Generate Payroll"}
+              </button>
+            </>
+          )}
         </div>
 
         <div className="business-table-wrap payroll-table-wrap">
           <table className="mbb-items-table business-table">
             <thead>
-              <tr>
-                <th>Staff Name</th>
-                <th>Designation</th>
-                <th>Monthly Salary</th>
-                <th>Attendance Status</th>
-                <th>Present Cycle</th>
-                <th>Net Pay</th>
-                <th>Payroll Status</th>
-                <th>Action</th>
-              </tr>
+              {registerMode === "attendance" ? (
+                <tr>
+                  <th>Staff Name</th>
+                  <th>Designation</th>
+                  <th>Monthly Salary</th>
+                  <th>Attendance Status</th>
+                  <th>Present Cycle</th>
+                </tr>
+              ) : (
+                <tr>
+                  <th>Staff Name</th>
+                  <th>Designation</th>
+                  <th>Attendance Cycle</th>
+                  <th>Gross Salary</th>
+                  <th>Deductions</th>
+                  <th>Net Pay</th>
+                  <th>Payroll Status</th>
+                  <th>Action</th>
+                </tr>
+              )}
             </thead>
             <tbody>
               {filteredStaff.map(member => {
@@ -538,55 +634,72 @@ function StaffAttendanceView({
                 const monthAttendance = payroll?.attendance;
                 return (
                   <tr key={member.id}>
-                    <td>{member.name}</td>
-                    <td>{member.designation}</td>
-                    <td>{RUPEE} {member.salary.toLocaleString("en-IN")}</td>
-                    <td>
-                      <div className="attendance-actions">
-                        {attendanceOptions.map(({ value, label }) => (
-                          <button
-                            key={value}
-                            className={status === value ? "active" : ""}
-                            disabled={!canWriteStaff}
-                            onClick={() => updateAttendance(member.id, value)}
-                            type="button"
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                    <td>
-                      {monthAttendance
-                        ? (
+                    {registerMode === "attendance" ? (
+                      <>
+                        <td>{member.name}</td>
+                        <td>{member.designation}</td>
+                        <td>{RUPEE} {member.salary.toLocaleString("en-IN")}</td>
+                        <td>
+                          <div className="attendance-actions">
+                            {attendanceOptions.map(({ value, label }) => (
+                              <button
+                                key={value}
+                                className={status === value ? "active" : ""}
+                                disabled={!canWriteStaff}
+                                onClick={() => updateAttendance(member.id, value)}
+                                type="button"
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                        <td>
+                          {monthAttendance
+                            ? (
+                              <span className="payroll-attendance-cycle">
+                                <strong>{monthAttendance.presentDays} P / {monthAttendance.absentDays} A / {monthAttendance.halfDays} H</strong>
+                                <small>{formatMoney(monthAttendance.paidDays)} paid days</small>
+                              </span>
+                            )
+                            : `${Object.values(member.attendance).filter(value => value === "present").length} days`}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td>{member.name}</td>
+                        <td>{member.designation}</td>
+                        <td>
                           <span className="payroll-attendance-cycle">
-                            <strong>{monthAttendance.presentDays} P / {monthAttendance.absentDays} A / {monthAttendance.halfDays} H</strong>
-                            <small>{formatMoney(monthAttendance.paidDays)} paid days</small>
+                            <strong>{monthAttendance ? `${monthAttendance.presentDays} P / ${monthAttendance.absentDays} A / ${monthAttendance.halfDays} H` : "Not loaded"}</strong>
+                            <small>{monthAttendance ? `${formatMoney(monthAttendance.paidDays)} paid days` : payrollReport?.monthLabel}</small>
                           </span>
-                        )
-                        : `${Object.values(member.attendance).filter(value => value === "present").length} days`}
-                    </td>
-                    <td>{RUPEE} {formatMoney(payroll?.netSalary ?? member.salary)}</td>
-                    <td>
-                      <span className={`payroll-status-pill ${payrollStatus}`}>
-                        {payrollStatus === "not_generated" ? "Not Generated" : payrollStatus}
-                      </span>
-                    </td>
-                    <td>
-                      {payrollStatus === "unpaid" && payroll?.payrollId ? (
-                        <button
-                          className="payroll-action-btn"
-                          disabled={!canWriteStaff || payingPayrollId === payroll.payrollId}
-                          onClick={() => openMarkPayrollPaid(payroll)}
-                          type="button"
-                        >
-                          <CheckCircle2 size={14} />
-                          {payingPayrollId === payroll.payrollId ? "Saving..." : "Mark Paid"}
-                        </button>
-                      ) : (
-                        <span className="payroll-muted-action">{payrollStatus === "paid" ? payroll?.paymentDate || "Paid" : "Generate first"}</span>
-                      )}
-                    </td>
+                        </td>
+                        <td>{RUPEE} {formatMoney(payroll?.basicSalary ?? member.salary)}</td>
+                        <td>{RUPEE} {formatMoney(payroll?.deductions ?? 0)}</td>
+                        <td>{RUPEE} {formatMoney(payroll?.netSalary ?? member.salary)}</td>
+                        <td>
+                          <span className={`payroll-status-pill ${payrollStatus}`}>
+                            {payrollStatus === "not_generated" ? "Not Generated" : payrollStatus}
+                          </span>
+                        </td>
+                        <td>
+                          {payrollStatus === "unpaid" && payroll?.payrollId ? (
+                            <button
+                              className="payroll-action-btn"
+                              disabled={!canWriteStaff || payingPayrollId === payroll.payrollId}
+                              onClick={() => openMarkPayrollPaid(payroll)}
+                              type="button"
+                            >
+                              <CheckCircle2 size={14} />
+                              {payingPayrollId === payroll.payrollId ? "Saving..." : "Mark Paid"}
+                            </button>
+                          ) : (
+                            <span className="payroll-muted-action">{payrollStatus === "paid" ? payroll?.paymentDate || "Paid" : "Generate first"}</span>
+                          )}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -817,6 +930,27 @@ function buildPayrollPrintHtml(report: StaffPayrollReport, businessName: string)
 </html>`;
 }
 
+function RoleAccessPreview({ role }: { role: string }) {
+  const permissions = roleModulePermissions(role);
+  return (
+    <div className="manage-users-role-preview">
+      <span>{roleLabel(role)} Access</span>
+      <div>
+        {userPermissionModules.map(moduleKey => {
+          const permission = permissions[moduleKey];
+          const level = permission?.manage ? "Manage" : permission?.create ? "Create" : permission?.view ? "View" : "No Access";
+          return (
+            <small key={moduleKey} className={permission?.view ? "allowed" : ""}>
+              {moduleKey.replace(/_/g, " ")}
+              <b>{level}</b>
+            </small>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ManageUsersView({
   business,
   users,
@@ -849,6 +983,9 @@ function ManageUsersView({
   const [busyUserId, setBusyUserId] = useState("");
   const [activityRows, setActivityRows] = useState<ActivityFeedItem[]>([]);
   const [isActivityLoading, setIsActivityLoading] = useState(false);
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [actionMenuUserId, setActionMenuUserId] = useState("");
+  const [editDraft, setEditDraft] = useState<{ id: string; firstName: string; role: string; isActive: boolean } | null>(null);
   const [draft, setDraft] = useState({ firstName: "", mobile: "", role: "salesman" });
   const [caDraft, setCaDraft] = useState({
     name: settings?.businessProfile.caName || "",
@@ -858,9 +995,19 @@ function ManageUsersView({
   });
   const filteredUsers = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return users;
-    return users.filter(user => [user.name, user.mobile, user.role].join(" ").toLowerCase().includes(normalized));
-  }, [query, users]);
+    const matches = normalized
+      ? users.filter(user =>
+          [cleanDeletedUserName(user.name), user.mobile, roleLabel(user.role)]
+            .join(" ")
+            .toLowerCase()
+            .includes(normalized)
+        )
+      : users;
+    return [...matches].sort((left, right) => {
+      const comparison = cleanDeletedUserName(left.name).localeCompare(cleanDeletedUserName(right.name));
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
+  }, [query, sortDirection, users]);
   const activeUsers = useMemo(() => users.filter(user => user.isActive), [users]);
 
   useEffect(() => {
@@ -940,6 +1087,41 @@ function ManageUsersView({
     }
   };
 
+  const openEditUser = (user: BusinessToolsProps["users"][number]) => {
+    setActionMenuUserId("");
+    setEditDraft({
+      id: user.id,
+      firstName: cleanDeletedUserName(user.name),
+      role: user.role,
+      isActive: user.isActive
+    });
+  };
+
+  const saveEditedUser = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editDraft) return;
+    if (!canManageUsers) {
+      setNotice("Your role can view users but cannot edit tenant users.");
+      return;
+    }
+    try {
+      setIsSaving(true);
+      await updateTenantUser(editDraft.id, {
+        firstName: editDraft.firstName,
+        role: editDraft.role,
+        isActive: editDraft.isActive
+      });
+      await onWorkspaceRefresh();
+      await refreshActivity();
+      setNotice("User access updated in Postgres.");
+      setEditDraft(null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "User access could not be updated.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const removeUser = async (userId: string) => {
     if (!canManageUsers) {
       setNotice("Your role can view users but cannot delete tenant users.");
@@ -949,12 +1131,38 @@ function ManageUsersView({
     if (!user || !window.confirm(`Delete ${user.name || user.mobile}?`)) return;
     try {
       setBusyUserId(userId);
+      setActionMenuUserId("");
       await deleteTenantUser(userId);
       await onWorkspaceRefresh();
       await refreshActivity();
       setNotice("User soft deleted in Postgres.");
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "User could not be deleted.");
+    } finally {
+      setBusyUserId("");
+    }
+  };
+
+  const restoreUser = async (userId: string) => {
+    if (!canManageUsers) {
+      setNotice("Your role can view users but cannot reactivate tenant users.");
+      return;
+    }
+    const user = users.find(row => row.id === userId);
+    if (!user) return;
+    try {
+      setBusyUserId(userId);
+      setActionMenuUserId("");
+      await updateTenantUser(userId, {
+        firstName: cleanDeletedUserName(user.name),
+        role: user.role,
+        isActive: true
+      });
+      await onWorkspaceRefresh();
+      await refreshActivity();
+      setNotice("User reactivated for this tenant.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "User could not be reactivated.");
     } finally {
       setBusyUserId("");
     }
@@ -1007,10 +1215,10 @@ function ManageUsersView({
           <button onClick={onLogout} type="button">Logout</button>
         </nav>
         <div className="settings-tool-footer">
-          <span>Tenant: {business.id || "new"}</span>
+          <span>App Version : 9.8.1</span>
           <span><Shield size={13} /> 100% Secure</span>
-          <span>Postgres backed</span>
-          <strong>VastraBook</strong>
+          <span>ISO Certified</span>
+          <strong>VastraBook <em>by Veltacore</em></strong>
         </div>
       </aside>
 
@@ -1047,7 +1255,16 @@ function ManageUsersView({
           <table className="mbb-items-table business-table">
             <thead>
               <tr>
-                <th>User Name</th>
+                <th>
+                  <button
+                    className={`manage-users-sort-btn ${sortDirection}`}
+                    onClick={() => setSortDirection(current => (current === "asc" ? "desc" : "asc"))}
+                    type="button"
+                  >
+                    User Name
+                    <ChevronDown size={13} />
+                  </button>
+                </th>
                 <th>Mobile Number</th>
                 <th>Role Type</th>
                 <th>Status</th>
@@ -1056,16 +1273,41 @@ function ManageUsersView({
             </thead>
             <tbody>
               {filteredUsers.map(user => (
-                <tr key={user.mobile}>
-                  <td>{user.name}</td>
+                <tr key={user.id}>
+                  <td>{cleanDeletedUserName(user.name)}</td>
                   <td>{user.mobile}</td>
-                  <td>{user.role}</td>
+                  <td>{roleLabel(user.role)}</td>
                   <td>{!user.isActive && <span className="deleted-pill">Deleted</span>}</td>
-                  <td>
-                    {user.isActive && canManageUsers && (
-                      <button className="mbb-row-menu" disabled={busyUserId === user.id} onClick={() => removeUser(user.id)} type="button">
-                        {busyUserId === user.id ? "Deleting..." : "Delete"}
+                  <td className="manage-users-action-cell">
+                    {canManageUsers && (
+                      <button
+                        className="mbb-row-icon-btn"
+                        aria-label={`Open actions for ${cleanDeletedUserName(user.name)}`}
+                        disabled={busyUserId === user.id}
+                        onClick={() => setActionMenuUserId(current => (current === user.id ? "" : user.id))}
+                        type="button"
+                      >
+                        <MoreVertical size={16} />
                       </button>
+                    )}
+                    {actionMenuUserId === user.id && canManageUsers && (
+                      <div className="manage-users-action-menu">
+                        <button onClick={() => openEditUser(user)} type="button">
+                          <Pencil size={14} />
+                          Edit User
+                        </button>
+                        {user.isActive ? (
+                          <button onClick={() => removeUser(user.id)} type="button">
+                            <Trash2 size={14} />
+                            {busyUserId === user.id ? "Deleting..." : "Delete User"}
+                          </button>
+                        ) : (
+                          <button onClick={() => restoreUser(user.id)} type="button">
+                            <RotateCcw size={14} />
+                            {busyUserId === user.id ? "Restoring..." : "Reactivate User"}
+                          </button>
+                        )}
+                      </div>
                     )}
                     {user.isActive && !canManageUsers && <span className="permission-muted-action">Read only</span>}
                   </td>
@@ -1102,17 +1344,63 @@ function ManageUsersView({
               <label>
                 <span>Role Type</span>
                 <select value={draft.role} onChange={event => setDraft(current => ({ ...current, role: event.target.value }))}>
-                  <option value="salesman">Salesman</option>
-                  <option value="stock_manager">Stock Manager</option>
-                  <option value="accountant">Accountant</option>
-                  <option value="admin">Admin</option>
+                  {roleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
             </div>
+            <RoleAccessPreview role={draft.role} />
             <div className="sales-register-modal-footer">
               <button type="button" className="mbb-bulk-btn" onClick={() => setShowCreate(false)}>Cancel</button>
               <button type="submit" className="mbb-primary-btn" disabled={!canCreateUsers || isSaving}>
                 {isSaving ? "Saving..." : "Save User"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {editDraft && canManageUsers && (
+        <div className="sales-register-modal-backdrop">
+          <form className="sales-register-modal purchase-register-modal" onSubmit={saveEditedUser}>
+            <div className="sales-register-modal-header">
+              <h2>Edit User</h2>
+              <button type="button" onClick={() => setEditDraft(null)} aria-label="Close">
+                <ArrowLeft size={20} />
+              </button>
+            </div>
+            <div className="sales-register-form-grid">
+              <label>
+                <span>User Name</span>
+                <input
+                  required
+                  value={editDraft.firstName}
+                  onChange={event => setEditDraft(current => current ? { ...current, firstName: event.target.value } : current)}
+                />
+              </label>
+              <label>
+                <span>Role Type</span>
+                <select
+                  value={editDraft.role}
+                  onChange={event => setEditDraft(current => current ? { ...current, role: event.target.value } : current)}
+                >
+                  {roleOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Status</span>
+                <select
+                  value={editDraft.isActive ? "active" : "deleted"}
+                  onChange={event => setEditDraft(current => current ? { ...current, isActive: event.target.value === "active" } : current)}
+                >
+                  <option value="active">Active</option>
+                  <option value="deleted">Deleted</option>
+                </select>
+              </label>
+            </div>
+            <RoleAccessPreview role={editDraft.role} />
+            <div className="sales-register-modal-footer">
+              <button type="button" className="mbb-bulk-btn" onClick={() => setEditDraft(null)}>Cancel</button>
+              <button type="submit" className="mbb-primary-btn" disabled={isSaving}>
+                {isSaving ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </form>
@@ -1143,8 +1431,9 @@ function ManageUsersView({
               <label>
                 <span>Access Type</span>
                 <select value={caDraft.role} onChange={event => setCaDraft(current => ({ ...current, role: event.target.value }))}>
-                  <option value="accountant">Accountant</option>
-                  <option value="admin">Admin</option>
+                  <option value="accountant">{roleLabels.accountant}</option>
+                  <option value="partner">{roleLabels.partner}</option>
+                  <option value="admin">{roleLabels.admin}</option>
                 </select>
               </label>
             </div>
@@ -1187,10 +1476,11 @@ function OnlineOrdersView({
   const businessToolsPermission = getModulePermission(modulePermissions, "business_tools");
   const canCreateOrders = businessToolsPermission.create;
   const canManageOrders = businessToolsPermission.manage;
-  const canViewReports = getModulePermission(modulePermissions, "reports").view;
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | OnlineOrder["dispatchStatus"]>("all");
+  const [statusFilter, setStatusFilter] = useState<OnlineOrderStatusFilter>("all");
   const [showCreate, setShowCreate] = useState(false);
+  const [showStoreManager, setShowStoreManager] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState("");
   const [notice, setNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [shippingBusyOrderId, setShippingBusyOrderId] = useState("");
@@ -1216,10 +1506,23 @@ function OnlineOrdersView({
   const taxable = selectedItem ? selectedItem.price * quantity : 0;
   const tax = selectedItem ? taxable * (selectedItem.gstRate / 100) : 0;
   const previewTotal = taxable + tax;
-  const openOrders = onlineOrders.filter(order => !["delivered", "cancelled"].includes(order.dispatchStatus));
+  const pendingOrders = onlineOrders.filter(order => ["new", "packed"].includes(order.dispatchStatus));
   const onlineSales = onlineOrders
     .filter(order => order.dispatchStatus !== "cancelled")
     .reduce((sum, order) => sum + order.totalAmount, 0);
+  const storeLink = `${window.location.origin}/?store=${business.id || "csm-silks"}`;
+  const selectedOrder = onlineOrders.find(order => order.id === selectedOrderId) || null;
+  const statusCounts = useMemo(
+    () => onlineOrders.reduce<Record<OnlineOrderStatusFilter, number>>(
+      (counts, order) => {
+        counts.all += 1;
+        counts[order.dispatchStatus] += 1;
+        return counts;
+      },
+      { all: onlineOrders.length, new: 0, packed: 0, shipped: 0, delivered: 0, cancelled: 0 }
+    ),
+    [onlineOrders]
+  );
   const filteredOrders = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return onlineOrders.filter(order => {
@@ -1240,6 +1543,14 @@ function OnlineOrdersView({
   const statusLabel = (value: string) => value.replace("_", " ").replace(/^\w/, char => char.toUpperCase());
   const formatQuantity = (value: number) =>
     value.toLocaleString("en-IN", { maximumFractionDigits: 3 });
+  const selectedOrderTimeline = selectedOrder
+    ? [
+        { label: "Order Placed", done: true },
+        { label: "Packed", done: ["packed", "shipped", "delivered"].includes(selectedOrder.dispatchStatus) },
+        { label: "Shipped", done: ["shipped", "delivered"].includes(selectedOrder.dispatchStatus) },
+        { label: "Delivered", done: selectedOrder.dispatchStatus === "delivered" }
+      ]
+    : [];
 
   const openCreateOrder = () => {
     if (!canCreateOrders) {
@@ -1341,12 +1652,11 @@ function OnlineOrdersView({
   };
 
   const shareStore = async () => {
-    const link = `${window.location.origin}/?store=csm-silks`;
     try {
-      await navigator.clipboard.writeText(link);
-      setNotice(`Store link copied: ${link}`);
+      await navigator.clipboard.writeText(storeLink);
+      setNotice(`Store link copied: ${storeLink}`);
     } catch {
-      setNotice(`Store link: ${link}`);
+      setNotice(`Store link: ${storeLink}`);
     }
   };
 
@@ -1360,20 +1670,9 @@ function OnlineOrdersView({
         <div className="mbb-items-header business-tool-header">
           <h1>Online Orders</h1>
           <div className="mbb-header-actions">
-            {canViewReports && (
-              <button className="mbb-report-btn" onClick={() => onNavigate("reports")} type="button">
-                <BarChart3 size={16} />
-                Reports
-                <ChevronDown size={15} />
-              </button>
-            )}
-            <button className="mbb-bulk-btn" onClick={shareStore} type="button">
-              <Copy size={16} />
-              Share Store
-            </button>
-            <button className="mbb-primary-btn" onClick={openCreateOrder} disabled={!canCreateOrders} type="button">
+            <button className="mbb-primary-btn online-store-manage-btn" onClick={() => setShowStoreManager(true)} type="button">
               <ShoppingCart size={16} />
-              Create Online Order
+              Manage Online Store
             </button>
           </div>
         </div>
@@ -1385,8 +1684,8 @@ function OnlineOrdersView({
             <strong>Active</strong>
           </div>
           <div className="business-stat-card">
-            <span>Open Orders</span>
-            <strong>{openOrders.length}</strong>
+            <span>Pending Orders</span>
+            <strong>{pendingOrders.length}</strong>
           </div>
           <div className="business-stat-card green">
             <span>Ready Catalog Items</span>
@@ -1401,34 +1700,47 @@ function OnlineOrdersView({
           <label className="sales-search-field online-orders-search">
             <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search orders, customer, item" />
           </label>
-          <label className="sales-filter-btn online-filter-select">
-            <span>Status</span>
-            <select value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)}>
-              <option value="all">All Orders</option>
-              <option value="new">New</option>
-              <option value="packed">Packed</option>
-              <option value="shipped">Shipped</option>
-              <option value="delivered">Delivered</option>
-              <option value="cancelled">Cancelled</option>
-            </select>
-          </label>
           <button className="sales-filter-btn" onClick={openCreateOrder} disabled={!canCreateOrders} type="button">
             <PackageCheck size={16} />
             Add Manual Store Order
             <ChevronDown size={16} />
           </button>
         </div>
+        <div className="online-order-status-tabs" aria-label="Online order status filter">
+          {onlineOrderStatusTabs.map(tab => (
+            <button
+              key={tab.value}
+              className={statusFilter === tab.value ? "active" : ""}
+              onClick={() => setStatusFilter(tab.value)}
+              type="button"
+            >
+              {tab.label}
+              <b>{statusCounts[tab.value]}</b>
+            </button>
+          ))}
+        </div>
         <div className="online-orders-layout has-orders">
           <section className="online-store-preview">
             <ShoppingCart size={62} />
             <h2>{business.name || "Business"} Online Store</h2>
             <p>{sellableItems.length} live catalog items are ready for customer ordering from the tenant inventory.</p>
+            <span className="online-store-link-preview">{storeLink}</span>
             <button className="mbb-primary-btn" onClick={shareStore} type="button">
               <Copy size={16} />
               Share Store Link
             </button>
           </section>
           <section className="online-orders-panel">
+            <header className="online-orders-panel-header">
+              <div>
+                <strong>{statusFilter === "all" ? "Customer Orders" : `${statusLabel(statusFilter)} Orders`}</strong>
+                <span>{filteredOrders.length} orders in this view</span>
+              </div>
+              <button className="mbb-bulk-btn" onClick={() => setShowStoreManager(true)} type="button">
+                <Store size={15} />
+                Store Setup
+              </button>
+            </header>
             {filteredOrders.length === 0 ? (
               <div className="online-orders-empty">
                 <PackageCheck size={52} />
@@ -1455,7 +1767,7 @@ function OnlineOrdersView({
                       <tr key={order.id}>
                         <td>
                           <strong>{order.orderNumber}</strong>
-                          <span>{order.orderDate}</span>
+                          <span>{order.orderDate} - {statusLabel(order.source)}</span>
                         </td>
                         <td>
                           <strong>{order.customerName}</strong>
@@ -1482,11 +1794,15 @@ function OnlineOrdersView({
                         </td>
                         <td>
                           <div className="online-order-actions">
+                            <button onClick={() => setSelectedOrderId(order.id)} type="button">View</button>
                             {order.paymentStatus !== "paid" && order.dispatchStatus !== "cancelled" && (
                               <button onClick={() => updateStatus(order, undefined, "paid")} disabled={!canManageOrders} type="button">Paid</button>
                             )}
                             {order.dispatchStatus === "new" && (
                               <button onClick={() => updateStatus(order, "packed")} disabled={!canManageOrders} type="button">Pack</button>
+                            )}
+                            {order.dispatchStatus === "packed" && !order.shiprocketOrderId && (
+                              <button onClick={() => updateStatus(order, "shipped")} disabled={!canManageOrders} type="button">Mark Shipped</button>
                             )}
                             {["new", "packed"].includes(order.dispatchStatus) && !order.shiprocketOrderId && (
                               <button
@@ -1526,6 +1842,135 @@ function OnlineOrdersView({
           </section>
         </div>
       </div>
+      {showStoreManager && (
+        <div className="sales-register-modal-backdrop">
+          <div className="sales-register-modal purchase-register-modal online-store-manager-modal">
+            <div className="sales-register-modal-header">
+              <h2>Manage Online Store</h2>
+              <button type="button" onClick={() => setShowStoreManager(false)} aria-label="Close">
+                <ArrowLeft size={20} />
+              </button>
+            </div>
+            <div className="online-store-manager-grid">
+              <div className="business-stat-card active">
+                <span><Store size={16} /> Online Store</span>
+                <strong>Active</strong>
+                <small>Tenant catalog is available</small>
+              </div>
+              <div className="business-stat-card">
+                <span>Pending Orders</span>
+                <strong>{pendingOrders.length}</strong>
+                <small>New and packed orders</small>
+              </div>
+              <div className="business-stat-card green">
+                <span>Ready Catalog Items</span>
+                <strong>{sellableItems.length || itemCount}</strong>
+                <small>{RUPEE} {onlineSales.toLocaleString("en-IN")} online sales</small>
+              </div>
+            </div>
+            <div className="online-store-share-box">
+              <span>Store Link</span>
+              <strong>{storeLink}</strong>
+              <button className="mbb-primary-btn" onClick={shareStore} type="button">
+                <Copy size={16} />
+                Share Store Link
+              </button>
+            </div>
+            <div className="online-store-checklist">
+              {[
+                ["Business profile", Boolean(business.name && business.phone)],
+                ["Catalog items", Boolean(sellableItems.length || itemCount)],
+                ["Customer COD orders", true],
+                ["Shiprocket shipping", true]
+              ].map(([label, done]) => (
+                <span key={String(label)} className={done ? "done" : ""}>
+                  <CheckCircle2 size={15} />
+                  {label}
+                </span>
+              ))}
+            </div>
+            <div className="sales-register-modal-footer">
+              <button type="button" className="mbb-bulk-btn" onClick={() => setShowStoreManager(false)}>Close</button>
+              <button
+                type="button"
+                className="mbb-primary-btn"
+                onClick={() => {
+                  setShowStoreManager(false);
+                  openCreateOrder();
+                }}
+                disabled={!canCreateOrders}
+              >
+                Add Manual Store Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {selectedOrder && (
+        <div className="sales-register-modal-backdrop">
+          <aside className="online-order-detail-drawer">
+            <header>
+              <div>
+                <span>{selectedOrder.orderNumber}</span>
+                <h2>{selectedOrder.customerName}</h2>
+              </div>
+              <button type="button" onClick={() => setSelectedOrderId("")} aria-label="Close order details">
+                <ArrowLeft size={20} />
+              </button>
+            </header>
+            <div className="online-order-detail-status">
+              <span className={`online-status-pill ${selectedOrder.paymentStatus}`}>{statusLabel(selectedOrder.paymentStatus)}</span>
+              <span className={`online-status-pill ${selectedOrder.dispatchStatus}`}>{statusLabel(selectedOrder.dispatchStatus)}</span>
+              <span className={`online-status-pill ${selectedOrder.shippingStatus}`}>{statusLabel(selectedOrder.shippingStatus)}</span>
+            </div>
+            <div className="online-order-timeline">
+              {selectedOrderTimeline.map(step => (
+                <span key={step.label} className={step.done ? "done" : ""}>
+                  <CheckCircle2 size={15} />
+                  {step.label}
+                </span>
+              ))}
+            </div>
+            <dl className="online-order-detail-grid">
+              <div><dt>Item</dt><dd>{selectedOrder.itemName}</dd></div>
+              <div><dt>Quantity</dt><dd>{formatQuantity(selectedOrder.quantity)} PCS</dd></div>
+              <div><dt>Total Amount</dt><dd>{RUPEE} {selectedOrder.totalAmount.toLocaleString("en-IN")}</dd></div>
+              <div><dt>Mobile</dt><dd>{selectedOrder.customerMobile || "-"}</dd></div>
+              <div><dt>Source</dt><dd>{statusLabel(selectedOrder.source)}</dd></div>
+              <div><dt>AWB</dt><dd>{selectedOrder.shiprocketAwbCode || "-"}</dd></div>
+              <div className="wide"><dt>Delivery Address</dt><dd>{[selectedOrder.deliveryAddress, selectedOrder.deliveryCity, selectedOrder.deliveryState, selectedOrder.deliveryPincode].filter(Boolean).join(", ") || "-"}</dd></div>
+              <div className="wide"><dt>Notes</dt><dd>{selectedOrder.notes || "-"}</dd></div>
+            </dl>
+            <div className="online-order-detail-actions">
+              {selectedOrder.paymentStatus !== "paid" && selectedOrder.dispatchStatus !== "cancelled" && (
+                <button onClick={() => updateStatus(selectedOrder, undefined, "paid")} disabled={!canManageOrders} type="button">Mark Paid</button>
+              )}
+              {selectedOrder.dispatchStatus === "new" && (
+                <button onClick={() => updateStatus(selectedOrder, "packed")} disabled={!canManageOrders} type="button">Pack Order</button>
+              )}
+              {selectedOrder.dispatchStatus === "packed" && !selectedOrder.shiprocketOrderId && (
+                <button onClick={() => updateStatus(selectedOrder, "shipped")} disabled={!canManageOrders} type="button">Mark Shipped</button>
+              )}
+              {["new", "packed"].includes(selectedOrder.dispatchStatus) && !selectedOrder.shiprocketOrderId && (
+                <button onClick={() => createShipment(selectedOrder)} disabled={!canManageOrders || shippingBusyOrderId === selectedOrder.id} type="button">
+                  {shippingBusyOrderId === selectedOrder.id ? "Creating..." : "Create Shipment"}
+                </button>
+              )}
+              {selectedOrder.shiprocketAwbCode && selectedOrder.dispatchStatus !== "delivered" && (
+                <button onClick={() => syncShipping(selectedOrder)} disabled={!canManageOrders || shippingBusyOrderId === selectedOrder.id} type="button">
+                  {shippingBusyOrderId === selectedOrder.id ? "Syncing..." : "Sync Tracking"}
+                </button>
+              )}
+              {selectedOrder.dispatchStatus === "shipped" && (
+                <button onClick={() => updateStatus(selectedOrder, "delivered", "paid")} disabled={!canManageOrders} type="button">Mark Delivered</button>
+              )}
+              {!["delivered", "cancelled"].includes(selectedOrder.dispatchStatus) && (
+                <button className="danger" onClick={() => updateStatus(selectedOrder, "cancelled")} disabled={!canManageOrders} type="button">Cancel Order</button>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
       {showCreate && canCreateOrders && (
         <div className="sales-register-modal-backdrop">
           <form className="sales-register-modal purchase-register-modal" onSubmit={saveOrder}>
@@ -1669,6 +2114,8 @@ function SmsMarketingView({
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | SMSCampaign["status"]>("all");
   const [showCreate, setShowCreate] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+  const [busyCampaignId, setBusyCampaignId] = useState("");
   const [notice, setNotice] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const reachableCustomers = useMemo(
@@ -1687,7 +2134,27 @@ function SmsMarketingView({
   const recipientCount = draft.audience === "manual" ? draft.partyIds.length : reachableCustomers.length;
   const messageSegments = Math.max(1, Math.ceil((draft.message.length || 1) / 160));
   const creditCost = recipientCount * messageSegments;
-  const sentCampaigns = smsMarketing.campaigns.filter(campaign => campaign.status !== "draft").length;
+  const completedCampaigns = smsMarketing.campaigns.filter(campaign => campaign.status === "completed").length;
+  const campaignStatusTabs: Array<{ value: "all" | SMSCampaign["status"]; label: string }> = [
+    { value: "all", label: "All" },
+    { value: "draft", label: "Draft" },
+    { value: "queued", label: "Queued" },
+    { value: "completed", label: "Completed" },
+    { value: "cancelled", label: "Cancelled" }
+  ];
+  const statusCounts = useMemo(() => {
+    const counts = {
+      all: smsMarketing.campaigns.length,
+      draft: 0,
+      queued: 0,
+      completed: 0,
+      cancelled: 0
+    };
+    smsMarketing.campaigns.forEach(campaign => {
+      counts[campaign.status] += 1;
+    });
+    return counts;
+  }, [smsMarketing.campaigns]);
   const filteredCampaigns = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return smsMarketing.campaigns.filter(campaign => {
@@ -1702,15 +2169,34 @@ function SmsMarketingView({
       return matchesStatus && (!normalized || haystack.includes(normalized));
     });
   }, [smsMarketing.campaigns, query, statusFilter]);
+  const selectedCampaign = useMemo(
+    () => smsMarketing.campaigns.find(campaign => campaign.id === selectedCampaignId) || null,
+    [smsMarketing.campaigns, selectedCampaignId]
+  );
+
+  useEffect(() => {
+    if (selectedCampaignId && !smsMarketing.campaigns.some(campaign => campaign.id === selectedCampaignId)) {
+      setSelectedCampaignId("");
+    }
+  }, [smsMarketing.campaigns, selectedCampaignId]);
 
   const statusLabel = (value: string) => value.replace("_", " ").replace(/^\w/, char => char.toUpperCase());
+  const recipientCounts = (campaign: SMSCampaign) => {
+    const recipients = campaign.recipients ?? [];
+    return {
+      queued: recipients.filter(recipient => recipient.status === "queued").length,
+      sent: recipients.filter(recipient => recipient.status === "sent").length,
+      delivered: recipients.filter(recipient => recipient.status === "delivered").length,
+      failed: recipients.filter(recipient => recipient.status === "failed").length
+    };
+  };
   const receiptSummary = (campaign: SMSCampaign) => {
     const recipients = campaign.recipients ?? [];
     if (!recipients.length) return "Awaiting receipts";
     const delivered = recipients.filter(recipient => recipient.status === "delivered").length;
     const sent = recipients.filter(recipient => recipient.status === "sent").length;
     const failed = recipients.filter(recipient => recipient.status === "failed").length;
-    return `${delivered} delivered · ${sent} sent · ${failed} failed`;
+    return `${delivered} delivered - ${sent} sent - ${failed} failed`;
   };
   const providerSummary = (campaign: SMSCampaign) => {
     const recipient = (campaign.recipients ?? []).find(row => row.provider || row.providerMessageId || row.errorMessage);
@@ -1719,6 +2205,18 @@ function SmsMarketingView({
     if (recipient.providerMessageId) return `${provider} ${recipient.providerMessageId}`;
     return recipient.errorMessage || provider;
   };
+  const selectedReceiptCounts = selectedCampaign ? recipientCounts(selectedCampaign) : { queued: 0, sent: 0, delivered: 0, failed: 0 };
+  const selectedDeliveryRate = selectedCampaign?.recipientCount
+    ? Math.round(((selectedReceiptCounts.delivered + selectedReceiptCounts.sent) / selectedCampaign.recipientCount) * 100)
+    : 0;
+  const selectedCampaignTimeline = selectedCampaign
+    ? [
+        { label: "Created", done: true },
+        { label: "Queued", done: Boolean(selectedCampaign.queuedAt) || ["queued", "completed", "cancelled"].includes(selectedCampaign.status) },
+        { label: "Provider Accepted", done: selectedCampaign.status === "completed" || selectedReceiptCounts.sent + selectedReceiptCounts.delivered + selectedReceiptCounts.failed > 0 },
+        { label: selectedCampaign.status === "cancelled" ? "Cancelled" : "Delivery Closed", done: ["completed", "cancelled"].includes(selectedCampaign.status) }
+      ]
+    : [];
 
   const openCreateCampaign = () => {
     if (!canCreateCampaigns) {
@@ -1775,7 +2273,11 @@ function SmsMarketingView({
       setIsSaving(true);
       const campaign = await createSmsCampaign(draft);
       await onWorkspaceRefresh();
-      setNotice(`${campaign.campaignNumber} queued in Postgres for ${campaign.recipientCount} customers.`);
+      setNotice(
+        campaign.status === "draft"
+          ? `${campaign.campaignNumber} saved as draft for ${campaign.recipientCount} customers.`
+          : `${campaign.campaignNumber} queued in Postgres for ${campaign.recipientCount} customers.`
+      );
       setShowCreate(false);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "SMS campaign could not be saved.");
@@ -1790,11 +2292,51 @@ function SmsMarketingView({
       return;
     }
     try {
+      setBusyCampaignId(campaign.id);
       const result = await syncSmsCampaignDelivery(campaign.id);
       await onWorkspaceRefresh();
+      setSelectedCampaignId(result.campaign.id);
       setNotice(result.message || `${campaign.campaignNumber} delivery synced in Postgres.`);
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "SMS campaign delivery could not be synced.");
+    } finally {
+      setBusyCampaignId("");
+    }
+  };
+
+  const queueCampaign = async (campaign: SMSCampaign) => {
+    if (!canManageCampaigns) {
+      setNotice("Your role can view SMS campaigns but cannot queue campaigns.");
+      return;
+    }
+    try {
+      setBusyCampaignId(campaign.id);
+      const result = await queueSmsCampaign(campaign.id);
+      await onWorkspaceRefresh();
+      setSelectedCampaignId(result.campaign.id);
+      setNotice(result.message || `${campaign.campaignNumber} queued in Postgres.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "SMS campaign could not be queued.");
+    } finally {
+      setBusyCampaignId("");
+    }
+  };
+
+  const cancelCampaign = async (campaign: SMSCampaign) => {
+    if (!canManageCampaigns) {
+      setNotice("Your role can view SMS campaigns but cannot cancel campaigns.");
+      return;
+    }
+    try {
+      setBusyCampaignId(campaign.id);
+      const result = await cancelSmsCampaign(campaign.id);
+      await onWorkspaceRefresh();
+      setSelectedCampaignId(result.campaign.id);
+      setNotice(result.message || `${campaign.campaignNumber} cancelled.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "SMS campaign could not be cancelled.");
+    } finally {
+      setBusyCampaignId("");
     }
   };
 
@@ -1835,7 +2377,7 @@ function SmsMarketingView({
           <div className="business-stat-card green">
             <span>Templates</span>
             <strong>{smsMarketing.templates.length}</strong>
-            <small>{sentCampaigns} sent</small>
+            <small>{completedCampaigns} sent</small>
           </div>
         </div>
         <div className="business-toolbar sms-toolbar">
@@ -1861,6 +2403,19 @@ function SmsMarketingView({
             <ChevronDown size={16} />
           </button>
         </div>
+        <div className="online-order-status-tabs sms-campaign-status-tabs" aria-label="SMS campaign status filter">
+          {campaignStatusTabs.map(tab => (
+            <button
+              key={tab.value}
+              className={statusFilter === tab.value ? "active" : ""}
+              onClick={() => setStatusFilter(tab.value)}
+              type="button"
+            >
+              {tab.label}
+              <b>{statusCounts[tab.value]}</b>
+            </button>
+          ))}
+        </div>
         <div className="sms-marketing-layout">
           <section className="sms-template-panel">
             <h2>Send offers to your customers</h2>
@@ -1876,6 +2431,16 @@ function SmsMarketingView({
             </div>
           </section>
           <section className="sms-campaign-panel">
+            <header className="sms-campaign-panel-header">
+              <div>
+                <strong>{statusFilter === "all" ? "Campaign Register" : `${statusLabel(statusFilter)} Campaigns`}</strong>
+                <span>{filteredCampaigns.length} campaigns in this view</span>
+              </div>
+              <button className="mbb-bulk-btn" onClick={openCreateCampaign} disabled={!canCreateCampaigns} type="button">
+                <Megaphone size={15} />
+                New Campaign
+              </button>
+            </header>
             {filteredCampaigns.length === 0 ? (
               <div className="online-orders-empty">
                 <Megaphone size={52} />
@@ -1913,12 +2478,27 @@ function SmsMarketingView({
                         </td>
                         <td><span className={`online-status-pill ${campaign.status}`}>{statusLabel(campaign.status)}</span></td>
                         <td>
-                          {campaign.status === "queued" && (
-                            <button className="sms-sync-btn" onClick={() => syncDelivery(campaign)} disabled={!canManageCampaigns} type="button">
-                              Sync Delivery
+                          <div className="sms-campaign-actions">
+                            <button className="sms-sync-btn" onClick={() => setSelectedCampaignId(campaign.id)} type="button">
+                              View
                             </button>
-                          )}
-                          {campaign.status !== "queued" && !canManageCampaigns && <span className="permission-muted-action">Read only</span>}
+                            {campaign.status === "draft" && (
+                              <button className="sms-sync-btn" onClick={() => queueCampaign(campaign)} disabled={!canManageCampaigns || busyCampaignId === campaign.id} type="button">
+                                {busyCampaignId === campaign.id ? "Queueing..." : "Queue"}
+                              </button>
+                            )}
+                            {campaign.status === "queued" && (
+                              <button className="sms-sync-btn" onClick={() => syncDelivery(campaign)} disabled={!canManageCampaigns || busyCampaignId === campaign.id} type="button">
+                                {busyCampaignId === campaign.id ? "Syncing..." : "Sync"}
+                              </button>
+                            )}
+                            {["draft", "queued"].includes(campaign.status) && (
+                              <button className="sms-sync-btn danger" onClick={() => cancelCampaign(campaign)} disabled={!canManageCampaigns || busyCampaignId === campaign.id} type="button">
+                                Cancel
+                              </button>
+                            )}
+                            {!canManageCampaigns && <span className="permission-muted-action">Read only</span>}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1929,6 +2509,85 @@ function SmsMarketingView({
           </section>
         </div>
       </div>
+      {selectedCampaign && (
+        <div className="sales-register-modal-backdrop">
+          <aside className="online-order-detail-drawer sms-campaign-detail-drawer">
+            <header>
+              <div>
+                <span>{selectedCampaign.campaignNumber}</span>
+                <h2>{selectedCampaign.name}</h2>
+              </div>
+              <button type="button" onClick={() => setSelectedCampaignId("")} aria-label="Close campaign details">
+                <ArrowLeft size={20} />
+              </button>
+            </header>
+            <div className="online-order-detail-status sms-campaign-detail-status">
+              <span className={`online-status-pill ${selectedCampaign.status}`}>{statusLabel(selectedCampaign.status)}</span>
+              <span>{selectedCampaign.recipientCount} recipients</span>
+              <span>{selectedCampaign.creditCost} credits</span>
+              <span>{selectedDeliveryRate}% accepted</span>
+            </div>
+            <div className="online-order-timeline sms-campaign-timeline">
+              {selectedCampaignTimeline.map(step => (
+                <span key={step.label} className={step.done ? "done" : ""}>
+                  <CheckCircle2 size={15} />
+                  {step.label}
+                </span>
+              ))}
+            </div>
+            <dl className="online-order-detail-grid">
+              <div><dt>Template</dt><dd>{selectedCampaign.templateName || "Custom"}</dd></div>
+              <div><dt>Audience</dt><dd>{statusLabel(selectedCampaign.audience)}</dd></div>
+              <div><dt>Created</dt><dd>{selectedCampaign.createdAt || "-"}</dd></div>
+              <div><dt>Queued</dt><dd>{selectedCampaign.queuedAt || "-"}</dd></div>
+              <div><dt>Accepted</dt><dd>{selectedReceiptCounts.sent + selectedReceiptCounts.delivered}</dd></div>
+              <div><dt>Failed</dt><dd>{selectedReceiptCounts.failed}</dd></div>
+              <div className="wide"><dt>Message</dt><dd>{selectedCampaign.message}</dd></div>
+            </dl>
+            <div className="sms-recipient-receipts">
+              <header>
+                <strong>Recipient Receipts</strong>
+                <span>
+                  {selectedReceiptCounts.queued} queued - {selectedReceiptCounts.sent} sent - {selectedReceiptCounts.delivered} delivered - {selectedReceiptCounts.failed} failed
+                </span>
+              </header>
+              {(selectedCampaign.recipients ?? []).length === 0 ? (
+                <div className="sms-recipient-empty">No recipients attached to this campaign.</div>
+              ) : (
+                <div className="sms-recipient-receipt-list">
+                  {(selectedCampaign.recipients ?? []).map(recipient => (
+                    <div className="sms-recipient-receipt-row" key={recipient.id}>
+                      <div>
+                        <strong>{recipient.partyName || "Customer"}</strong>
+                        <span>{recipient.mobile}</span>
+                      </div>
+                      <span className={`online-status-pill ${recipient.status}`}>{statusLabel(recipient.status)}</span>
+                      <small>{recipient.providerMessageId || recipient.errorMessage || recipient.sentAt || recipient.createdAt || "-"}</small>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="online-order-detail-actions">
+              {selectedCampaign.status === "draft" && (
+                <button onClick={() => queueCampaign(selectedCampaign)} disabled={!canManageCampaigns || busyCampaignId === selectedCampaign.id} type="button">
+                  {busyCampaignId === selectedCampaign.id ? "Queueing..." : "Queue Campaign"}
+                </button>
+              )}
+              {selectedCampaign.status === "queued" && (
+                <button onClick={() => syncDelivery(selectedCampaign)} disabled={!canManageCampaigns || busyCampaignId === selectedCampaign.id} type="button">
+                  {busyCampaignId === selectedCampaign.id ? "Syncing..." : "Sync Delivery"}
+                </button>
+              )}
+              {["draft", "queued"].includes(selectedCampaign.status) && (
+                <button className="danger" onClick={() => cancelCampaign(selectedCampaign)} disabled={!canManageCampaigns || busyCampaignId === selectedCampaign.id} type="button">
+                  Cancel Campaign
+                </button>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
       {showCreate && canCreateCampaigns && (
         <div className="sales-register-modal-backdrop">
           <form className="sales-register-modal purchase-register-modal" onSubmit={saveCampaign}>

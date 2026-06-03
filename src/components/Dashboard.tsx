@@ -1,17 +1,27 @@
 import { useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
   CalendarDays,
-  FileBarChart,
+  ChevronDown,
+  CheckCircle2,
+  CircleDot,
+  Gift,
+  Keyboard,
   Landmark,
-  Package,
-  ReceiptText,
   RefreshCw,
-  Settings2,
-  Users
+  Megaphone,
+  MessagesSquare,
+  MonitorDown,
+  UserRoundPlus,
+  X
 } from "lucide-react";
-import type { DashboardData, Party, SalesInvoice, TransactionRow } from "../types";
+import type { Business, DashboardData, Party, SalesInvoice, SettingsData, TransactionRow } from "../types";
+
+type DashboardUtilityKey = "desktop" | "announcements" | "refer" | "invite" | "support" | "shortcuts";
+type SalesReportPeriod = "daily" | "weekly" | "monthly";
+type SalesTrendRow = DashboardData["salesTrend"][number];
 
 interface DashboardProps {
   stats: {
@@ -20,11 +30,22 @@ interface DashboardProps {
     payable: number;
     inventoryVal: number;
   };
+  business: Business;
+  businessProfile?: SettingsData["businessProfile"];
   invoices: SalesInvoice[];
   parties: Party[];
   transactions: TransactionRow[];
   dashboard: DashboardData;
-  setActiveTab: (tab: string) => void;
+  counts: {
+    parties: number;
+    items: number;
+    salesInvoices: number;
+    purchaseInvoices: number;
+    paymentsIn: number;
+    paymentsOut: number;
+  };
+  userCount: number;
+  onNavigate: (tab: string) => void;
   onNavigateToInvoice: (invoiceId: string) => void;
   onRefresh: () => Promise<void> | void;
 }
@@ -45,17 +66,80 @@ const formatReportDate = (value: string) => {
     : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 };
 
+const checklistPriorityRank = { high: 0, medium: 1, low: 2 };
+
+const checklistStatusClass = (status: string) =>
+  status.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+const inferChecklistPriority = (status: string): "high" | "medium" | "low" => {
+  const normalized = checklistStatusClass(status);
+  if (["attention", "due"].includes(normalized)) return "high";
+  if (["open", "scheduled"].includes(normalized)) return "medium";
+  return "low";
+};
+
+const salesReportPeriods: Array<{ key: SalesReportPeriod; label: string; description: string }> = [
+  { key: "daily", label: "Daily", description: "Day-wise tenant sales" },
+  { key: "weekly", label: "Weekly", description: "Week bucket summary" },
+  { key: "monthly", label: "Monthly", description: "Month bucket summary" }
+];
+
+const aggregateTrendRows = (rows: SalesTrendRow[], period: SalesReportPeriod): SalesTrendRow[] => {
+  if (period === "daily") return rows;
+  if (rows.length === 0) return rows;
+
+  if (period === "weekly") {
+    const buckets: SalesTrendRow[] = [];
+    for (let index = 0; index < rows.length; index += 7) {
+      const group = rows.slice(index, index + 7);
+      buckets.push({
+        date: group[0]?.date || "",
+        label: group.length > 1 ? `Week ${buckets.length + 1}` : group[0]?.label || `Week ${buckets.length + 1}`,
+        sales: group.reduce((total, row) => total + row.sales, 0),
+        invoiceCount: group.reduce((total, row) => total + row.invoiceCount, 0)
+      });
+    }
+    return buckets;
+  }
+
+  const monthlyBuckets = new Map<string, SalesTrendRow>();
+  rows.forEach(row => {
+    const date = row.date ? new Date(`${row.date}T00:00:00`) : null;
+    const key = date && !Number.isNaN(date.getTime())
+      ? `${date.getFullYear()}-${date.getMonth()}`
+      : row.label || "month";
+    const label = date && !Number.isNaN(date.getTime())
+      ? date.toLocaleDateString("en-GB", { month: "short" })
+      : row.label || "Month";
+    const current = monthlyBuckets.get(key);
+    monthlyBuckets.set(key, {
+      date: current?.date || row.date,
+      label,
+      sales: (current?.sales || 0) + row.sales,
+      invoiceCount: (current?.invoiceCount || 0) + row.invoiceCount
+    });
+  });
+  return Array.from(monthlyBuckets.values());
+};
+
 export default function Dashboard({
   stats,
+  business,
+  businessProfile,
   invoices,
   parties,
   transactions,
   dashboard,
-  setActiveTab,
+  counts,
+  userCount,
+  onNavigate,
   onNavigateToInvoice,
   onRefresh
 }: DashboardProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeUtility, setActiveUtility] = useState<DashboardUtilityKey | null>(null);
+  const [utilityNotice, setUtilityNotice] = useState("");
+  const [salesReportPeriod, setSalesReportPeriod] = useState<SalesReportPeriod>("daily");
   const hasDashboardData = Boolean(dashboard.lastUpdated || dashboard.salesTrend.length || dashboard.checklist.length);
   const currentStats = hasDashboardData
     ? dashboard.stats
@@ -80,7 +164,7 @@ export default function Dashboard({
   const receivable = currentStats.receivable;
   const payable = currentStats.payable;
   const bankBalance = currentStats.bankBalance;
-  const trend = dashboard.salesTrend.length
+  const baseTrend = dashboard.salesTrend.length
     ? dashboard.salesTrend
     : Array.from({ length: 7 }, (_, index) => ({
         date: "",
@@ -88,24 +172,38 @@ export default function Dashboard({
         sales: 0,
         invoiceCount: 0
       }));
+  const trend = useMemo(() => aggregateTrendRows(baseTrend, salesReportPeriod), [baseTrend, salesReportPeriod]);
+  const activeSalesPeriod = salesReportPeriods.find(period => period.key === salesReportPeriod) || salesReportPeriods[0];
   const salesReportTitle =
     dashboard.salesTrend.length > 0
-      ? `Sales Report - ${formatReportDate(dashboard.salesTrend[0].date)} to ${formatReportDate(dashboard.salesTrend[dashboard.salesTrend.length - 1].date)}`
+      ? `Sales Report - ${salesReportPeriod === "daily" ? "" : `${activeSalesPeriod.label} - `}${formatReportDate(dashboard.salesTrend[0].date)} to ${formatReportDate(dashboard.salesTrend[dashboard.salesTrend.length - 1].date)}`
       : "Sales Report";
   const chart = useMemo(() => {
     const maxSales = Math.max(...trend.map(row => row.sales), 1);
     const points = trend.map((row, index) => {
-      const x = 56 + index * (574 / Math.max(trend.length - 1, 1));
+      const x = trend.length === 1 ? 315 : 56 + index * (574 / Math.max(trend.length - 1, 1));
       const y = 180 - (row.sales / maxSales) * 142;
       return { x, y };
     });
     const linePath = points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(" ");
     const areaPath = points.length ? `${linePath} L ${points[points.length - 1].x.toFixed(1)} 196 L ${points[0].x.toFixed(1)} 196 Z` : "";
     const yTicks = Array.from({ length: 6 }, (_, index) => Math.round((maxSales / 5) * (5 - index)));
-    return { areaPath, linePath, yTicks };
+    return { areaPath, linePath, points, yTicks };
   }, [trend]);
   const trendSales = trend.reduce((total, row) => total + row.sales, 0);
   const trendInvoiceCount = trend.reduce((total, row) => total + row.invoiceCount, 0);
+  const trendSalesLabel = salesReportPeriod === "daily"
+    ? "Last 7 days sales"
+    : `${activeSalesPeriod.label} sales`;
+  const checklistRows = useMemo(() => (
+    dashboard.checklist
+      .map(item => ({
+        ...item,
+        priority: item.priority || inferChecklistPriority(item.status)
+      }))
+      .sort((left, right) => checklistPriorityRank[left.priority] - checklistPriorityRank[right.priority])
+  ), [dashboard.checklist]);
+  const checklistNeedsAction = checklistRows.filter(item => checklistStatusClass(item.status) !== "clear");
 
   const handleTransactionOpen = (tx: TransactionRow) => {
     const type = tx.type.toLowerCase();
@@ -114,31 +212,31 @@ export default function Dashboard({
       return;
     }
     if (type.includes("purchase")) {
-      setActiveTab("purchases");
+      onNavigate("purchases");
       return;
     }
     if (type.includes("payment in")) {
-      setActiveTab("payment-in");
+      onNavigate("payment-in");
       return;
     }
     if (type.includes("payment out")) {
-      setActiveTab("payment-out");
+      onNavigate("payment-out");
       return;
     }
     if (type.includes("expense")) {
-      setActiveTab("expenses");
+      onNavigate("expenses");
       return;
     }
-    setActiveTab("reports");
+    onNavigate("reports");
   };
 
   const handleTransactionTypeOpen = (type: string) => {
     const lowerType = type.toLowerCase();
-    if (lowerType.includes("purchase")) setActiveTab("purchases");
-    else if (lowerType.includes("payment in")) setActiveTab("payment-in");
-    else if (lowerType.includes("payment out")) setActiveTab("payment-out");
-    else if (lowerType.includes("expense")) setActiveTab("expenses");
-    else setActiveTab("sales-invoices");
+    if (lowerType.includes("purchase")) onNavigate("purchases");
+    else if (lowerType.includes("payment in")) onNavigate("payment-in");
+    else if (lowerType.includes("payment out")) onNavigate("payment-out");
+    else if (lowerType.includes("expense")) onNavigate("expenses");
+    else onNavigate("sales-invoices");
   };
 
   const handleRefresh = async () => {
@@ -151,13 +249,154 @@ export default function Dashboard({
   };
 
   const utilityActions = [
-    { label: "Parties", tab: "parties", icon: Users },
-    { label: "Items", tab: "items", icon: Package },
-    { label: "Sales Invoices", tab: "sales-invoices", icon: ReceiptText },
-    { label: "Reports", tab: "reports", icon: FileBarChart },
-    { label: "Cash and Bank", tab: "cash-bank", icon: Landmark },
-    { label: "Settings", tab: "settings", icon: Settings2 }
+    { key: "desktop" as const, label: "Download Desktop App", icon: MonitorDown },
+    { key: "announcements" as const, label: "Announcements", icon: Megaphone },
+    { key: "refer" as const, label: "Refer a friend", icon: Gift },
+    { key: "invite" as const, label: "Invite users", icon: UserRoundPlus },
+    { key: "support" as const, label: "Chat Support", icon: MessagesSquare },
+    { key: "shortcuts" as const, label: "Shortcuts", icon: Keyboard }
   ];
+  const activeUtilityAction = utilityActions.find(action => action.key === activeUtility);
+
+  const openUtility = (key: DashboardUtilityKey) => {
+    setUtilityNotice("");
+    setActiveUtility(current => current === key ? null : key);
+  };
+
+  const copyUtilityText = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard?.writeText(text);
+      setUtilityNotice(`${label} copied.`);
+    } catch {
+      setUtilityNotice(`${label}: ${text}`);
+    }
+  };
+
+  const downloadDesktopShortcut = () => {
+    const url = window.location.origin;
+    const fileName = `${(business.name || "VastraBook").replace(/[^a-z0-9]+/gi, "-") || "VastraBook"}.url`;
+    const shortcut = `[InternetShortcut]\nURL=${url}\nIconFile=${url}/favicon.ico\nIconIndex=0\n`;
+    const blob = new Blob([shortcut], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+    setUtilityNotice("Desktop shortcut downloaded.");
+  };
+
+  const renderUtilityBody = () => {
+    if (!activeUtility) return null;
+    const appLink = window.location.origin;
+    const referralCode = businessProfile?.referralCode || `${(business.prefix || "VB").toUpperCase()}2026`;
+    const supportEmail = businessProfile?.supportEmail || business.email || "support@vastrabook.in";
+    const supportPhone = businessProfile?.supportPhone || business.phone || "8608633066";
+
+    if (activeUtility === "desktop") {
+      return (
+        <>
+          <div className="dashboard-utility-hero">
+            <strong>{business.name || "Tenant Workspace"}</strong>
+            <span>Install a desktop shortcut that opens this tenant dashboard directly.</span>
+          </div>
+          <div className="dashboard-utility-stats">
+            <span>Last sync <b>{dashboard.lastUpdated || "Loading"}</b></span>
+            <span>Invoices <b>{counts.salesInvoices}</b></span>
+          </div>
+          <div className="dashboard-utility-actions">
+            <button type="button" onClick={downloadDesktopShortcut}>Download Shortcut</button>
+            <button type="button" onClick={() => void copyUtilityText(appLink, "App link")}>Copy App Link</button>
+          </div>
+        </>
+      );
+    }
+
+    if (activeUtility === "announcements") {
+      return (
+        <>
+          <div className="dashboard-utility-list">
+            {checklistNeedsAction.slice(0, 4).map(item => (
+              <button key={item.id} type="button" onClick={() => onNavigate(item.target)}>
+                <span>{item.label}</span>
+                <b>{item.count} pending</b>
+              </button>
+            ))}
+            {checklistNeedsAction.length === 0 && <p>No urgent tenant alerts right now.</p>}
+          </div>
+          <div className="dashboard-utility-mini">
+            <strong>Latest activity</strong>
+            <span>{transactionRows[0]?.type || "No transactions"} {transactionRows[0]?.txnNo || ""}</span>
+          </div>
+        </>
+      );
+    }
+
+    if (activeUtility === "refer") {
+      return (
+        <>
+          <div className="dashboard-utility-code">
+            <span>Referral Code</span>
+            <strong>{referralCode}</strong>
+          </div>
+          <p className="dashboard-utility-copy">Share this tenant referral code with another textile business.</p>
+          <div className="dashboard-utility-actions">
+            <button type="button" onClick={() => void copyUtilityText(referralCode, "Referral code")}>Copy Code</button>
+            <button type="button" onClick={() => onNavigate("settings")}>Open Refer & Earn</button>
+          </div>
+        </>
+      );
+    }
+
+    if (activeUtility === "invite") {
+      return (
+        <>
+          <div className="dashboard-utility-stats">
+            <span>Active users <b>{userCount}</b></span>
+            <span>Parties <b>{counts.parties}</b></span>
+          </div>
+          <p className="dashboard-utility-copy">Invite sales, stock, and accountant users with role-based access.</p>
+          <div className="dashboard-utility-actions">
+            <button type="button" onClick={() => onNavigate("manage-users")}>Manage Users</button>
+            <button type="button" onClick={() => onNavigate("settings")}>Business Access</button>
+          </div>
+        </>
+      );
+    }
+
+    if (activeUtility === "support") {
+      return (
+        <>
+          <div className="dashboard-utility-list">
+            <button type="button" onClick={() => void copyUtilityText(supportPhone, "Support phone")}>
+              <span>Phone support</span>
+              <b>{supportPhone}</b>
+            </button>
+            <button type="button" onClick={() => void copyUtilityText(supportEmail, "Support email")}>
+              <span>Email support</span>
+              <b>{supportEmail}</b>
+            </button>
+          </div>
+          <div className="dashboard-utility-actions">
+            <button type="button" onClick={() => onNavigate("settings")}>Open Help Desk</button>
+            <button type="button" onClick={() => void copyUtilityText(`${business.name} support request - ${supportPhone}`, "Support summary")}>Copy Summary</button>
+          </div>
+        </>
+      );
+    }
+
+    return (
+      <div className="dashboard-shortcut-grid">
+        <button type="button" onClick={() => onNavigate("sales-invoice-create")}>Ctrl + N <span>Create invoice</span></button>
+        <button type="button" onClick={() => onNavigate("items")}>I <span>Open items</span></button>
+        <button type="button" onClick={() => onNavigate("parties")}>P <span>Open parties</span></button>
+        <button type="button" onClick={() => onNavigate("pos-billing")}>B <span>POS billing</span></button>
+        <button type="button" onClick={() => onNavigate("reports")}>R <span>Reports</span></button>
+        <button type="button" onClick={() => onNavigate("settings")}>S <span>Settings</span></button>
+      </div>
+    );
+  };
 
   return (
     <div className="mbb-screen dashboard-screen">
@@ -169,9 +408,10 @@ export default function Dashboard({
               const Icon = action.icon;
               return (
                 <button
-                  key={action.tab}
+                  key={action.label}
+                  className={activeUtility === action.key ? "active" : ""}
                   aria-label={`Open ${action.label}`}
-                  onClick={() => setActiveTab(action.tab)}
+                  onClick={() => openUtility(action.key)}
                   title={action.label}
                   type="button"
                 >
@@ -181,6 +421,22 @@ export default function Dashboard({
             })}
           </div>
         </div>
+
+        {activeUtility && activeUtilityAction && (
+          <aside className="dashboard-utility-popover" aria-label={activeUtilityAction.label}>
+            <header>
+              <div>
+                <span>{business.name || "Tenant"}</span>
+                <strong>{activeUtilityAction.label}</strong>
+              </div>
+              <button type="button" onClick={() => setActiveUtility(null)} aria-label="Close utility panel">
+                <X size={17} />
+              </button>
+            </header>
+            {utilityNotice && <div className="dashboard-utility-notice">{utilityNotice}</div>}
+            {renderUtilityBody()}
+          </aside>
+        )}
 
         <div className="dashboard-body">
           <div className="dashboard-overview-title">
@@ -198,15 +454,15 @@ export default function Dashboard({
           </div>
 
           <div className="dashboard-summary-row">
-            <button className="dashboard-metric collect" type="button" onClick={() => setActiveTab("parties")}>
+            <button className="dashboard-metric collect" type="button" onClick={() => onNavigate("parties")}>
               <span><ArrowDownLeft size={14} /> To Collect</span>
               <strong>{formatMoney(receivable, 2)}</strong>
             </button>
-            <button className="dashboard-metric pay" type="button" onClick={() => setActiveTab("purchases")}>
+            <button className="dashboard-metric pay" type="button" onClick={() => onNavigate("purchases")}>
               <span><ArrowUpRight size={14} /> To Pay</span>
               <strong>{formatMoney(payable, 2)}</strong>
             </button>
-            <button className="dashboard-metric balance" type="button" onClick={() => setActiveTab("cash-bank")}>
+            <button className="dashboard-metric balance" type="button" onClick={() => onNavigate("cash-bank")}>
               <span><Landmark size={14} /> Total Cash + Bank Balance</span>
               <strong>{formatMoney(bankBalance, 2)}</strong>
             </button>
@@ -247,7 +503,7 @@ export default function Dashboard({
                     )}
                   </tbody>
                 </table>
-                <button className="see-all-link" onClick={() => setActiveTab("reports")} type="button">
+                <button className="see-all-link" onClick={() => onNavigate("reports")} type="button">
                   See All Transactions
                 </button>
               </section>
@@ -255,10 +511,21 @@ export default function Dashboard({
               <section className="dashboard-section-card sales-report-card">
                 <header>
                   <span>{salesReportTitle}</span>
-                  <button onClick={() => setActiveTab("reports")} type="button">
+                  <label className="dashboard-period-control">
                     <CalendarDays size={14} />
-                    Daily
-                  </button>
+                    <select
+                      aria-label="Sales report period"
+                      value={salesReportPeriod}
+                      onChange={event => setSalesReportPeriod(event.target.value as SalesReportPeriod)}
+                    >
+                      {salesReportPeriods.map(period => (
+                        <option key={period.key} value={period.key}>
+                          {period.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={15} />
+                  </label>
                 </header>
                 <div className="dashboard-chart-row">
                   <div className="chart-area">
@@ -288,15 +555,26 @@ export default function Dashboard({
                         strokeWidth="3"
                         strokeLinecap="round"
                       />
+                      {chart.points.map((point, index) => (
+                        <circle
+                          cx={point.x}
+                          cy={point.y}
+                          fill="#ffffff"
+                          key={`${trend[index]?.label}-${index}`}
+                          r="4.5"
+                          stroke="#20c653"
+                          strokeWidth="2"
+                        />
+                      ))}
                       {trend.map((row, index) => (
-                        <text key={`${row.date}-${row.label}`} x={56 + index * (574 / Math.max(trend.length - 1, 1))} y="216" fontSize="12" fill="#7f8a9c" textAnchor="middle">
+                        <text key={`${row.date}-${row.label}`} x={chart.points[index]?.x || 56} y="216" fontSize="12" fill="#7f8a9c" textAnchor="middle">
                           {row.label}
                         </text>
                       ))}
                     </svg>
                   </div>
                   <div className="chart-stats-panel">
-                    <span>Last 7 days sales</span>
+                    <span>{trendSalesLabel}</span>
                     <strong>{formatMoney(trendSales)}</strong>
                     <span>Invoices Made</span>
                     <strong>{trendInvoiceCount}</strong>
@@ -306,25 +584,37 @@ export default function Dashboard({
             </div>
 
             <section className="dashboard-section-card checklist-card">
-              <header>Today's Checklist</header>
+              <header>
+                <span>Today's Checklist</span>
+                <small>{checklistNeedsAction.length} action{checklistNeedsAction.length === 1 ? "" : "s"} pending</small>
+              </header>
               <div className="checklist-actions">
-                {dashboard.checklist.map(item => (
-                  <button
-                    className={`checklist-action-row ${item.status.toLowerCase()}`}
-                    key={item.id}
-                    onClick={() => setActiveTab(item.target)}
-                    type="button"
-                  >
-                    <span className="checklist-action-main">
-                      <strong>{item.label}</strong>
-                      <small>{item.count} open item{item.count === 1 ? "" : "s"} · {item.status}</small>
-                    </span>
-                    <span className="checklist-action-meta">
-                      {item.value > 0 ? formatMoney(item.value) : item.count}
-                    </span>
-                  </button>
-                ))}
-                {dashboard.checklist.length === 0 && (
+                {checklistRows.map(item => {
+                  const normalizedStatus = checklistStatusClass(item.status);
+                  const Icon = normalizedStatus === "clear" ? CheckCircle2 : normalizedStatus === "scheduled" ? CircleDot : AlertTriangle;
+
+                  return (
+                    <button
+                      className={`checklist-action-row ${normalizedStatus} priority-${item.priority}`}
+                      key={item.id}
+                      onClick={() => onNavigate(item.target)}
+                      type="button"
+                    >
+                      <span className="checklist-action-icon">
+                        <Icon size={17} />
+                      </span>
+                      <span className="checklist-action-main">
+                        <strong>{item.label}</strong>
+                        <small>{item.description || `${item.count} open item${item.count === 1 ? "" : "s"} - ${item.status}`}</small>
+                      </span>
+                      <span className="checklist-action-meta">
+                        <b>{item.value > 0 ? formatMoney(item.value) : item.count}</b>
+                        <em>{item.ctaLabel || item.status}</em>
+                      </span>
+                    </button>
+                  );
+                })}
+                {checklistRows.length === 0 && (
                   <div className="checklist-empty">
                     <div className="checklist-illustration" aria-hidden="true" />
                     <strong>No pending work</strong>

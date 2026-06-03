@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useState, useMemo } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import TenantOnboarding from "./components/TenantOnboarding";
@@ -68,6 +68,7 @@ const initialSalesRows: Record<SalesRegisterViewKey, SalesRegisterDataRow[]> = {
   "delivery-challan": [],
   "proforma-invoice": []
 };
+const SALES_REGISTER_VIEWS = Object.keys(initialSalesRows) as SalesRegisterView[];
 const initialAccounting: AccountingData = {
   bankAccounts: [],
   bankTransactions: [],
@@ -130,6 +131,8 @@ const TAB_MODULES: Record<string, string> = {
 };
 
 const FALLBACK_TABS = ["dashboard", "items", "parties", "sales-invoices", "purchases", "reports"];
+const WORKSPACE_REALTIME_INTERVAL_MS = 15000;
+type RealtimeStatus = "connecting" | "live" | "syncing" | "error";
 
 const labelForModule = (moduleKey: string) => moduleKey.replace(/_/g, " ");
 const shouldOpenOnboarding = (message: string) => (
@@ -163,6 +166,7 @@ export default function App() {
       || (!sharedLedgerTokenFromPath() && !hasTenantSession());
   });
   const [activeTab, setActiveTab] = useState<string>("dashboard");
+  const [salesRegisterCreateToken, setSalesRegisterCreateToken] = useState(0);
   const [business, setBusiness] = useState<Business>(initialBusiness);
   const [parties, setParties] = useState<Party[]>(initialParties);
   const [items, setItems] = useState<Item[]>(initialItems);
@@ -184,6 +188,10 @@ export default function App() {
   const [targetSalesInvoiceId, setTargetSalesInvoiceId] = useState<string | null>(null);
   const [isLoadingTenant, setIsLoadingTenant] = useState(true);
   const [apiError, setApiError] = useState("");
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("connecting");
+  const [lastSyncedAt, setLastSyncedAt] = useState("");
+  const [realtimeError, setRealtimeError] = useState("");
+  const realtimeRequestRef = useRef<Promise<void> | null>(null);
 
   // Modals / Form toggles
   const [showAddItem, setShowAddItem] = useState(false);
@@ -201,6 +209,7 @@ export default function App() {
     if (!silent) {
       setIsLoadingTenant(true);
     }
+    setRealtimeStatus(silent ? "syncing" : "connecting");
     return getWorkspace()
       .then((workspace) => {
         setBusiness(workspace.business);
@@ -221,10 +230,15 @@ export default function App() {
         setUsers(workspace.users);
         setModulePermissions(workspace.modulePermissions ?? {});
         setCounts(workspace.counts);
+        setLastSyncedAt(workspace.realtime?.syncedAt || new Date().toISOString());
+        setRealtimeStatus("live");
+        setRealtimeError("");
         setApiError("");
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : "Unable to load tenant data";
+        setRealtimeStatus("error");
+        setRealtimeError(message);
         setApiError(message);
         if (shouldOpenOnboarding(message)) {
           clearTenantSession();
@@ -244,28 +258,40 @@ export default function App() {
     }
   }, [loadTenantWorkspace, publicSharedLedgerToken, showOnboarding]);
 
-  useEffect(() => {
-    if (showOnboarding || publicSharedLedgerToken || activeTab !== "dashboard") return;
+  const runRealtimeWorkspaceSync = useCallback(() => {
+    if (realtimeRequestRef.current) return realtimeRequestRef.current;
+    const request = loadTenantWorkspace({ silent: true })
+      .finally(() => {
+        realtimeRequestRef.current = null;
+      });
+    realtimeRequestRef.current = request;
+    return request;
+  }, [loadTenantWorkspace]);
 
-    const refreshDashboard = () => {
-      void loadTenantWorkspace({ silent: true });
+  useEffect(() => {
+    if (showOnboarding || publicSharedLedgerToken) return;
+
+    const refreshWorkspace = () => {
+      if (document.visibilityState === "visible") {
+        void runRealtimeWorkspaceSync();
+      }
     };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "visible") {
-        refreshDashboard();
+        void runRealtimeWorkspaceSync();
       }
     };
 
-    const intervalId = window.setInterval(refreshDashboard, 30000);
-    window.addEventListener("focus", refreshDashboard);
+    const intervalId = window.setInterval(refreshWorkspace, WORKSPACE_REALTIME_INTERVAL_MS);
+    window.addEventListener("focus", refreshWorkspace);
     document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener("focus", refreshDashboard);
+      window.removeEventListener("focus", refreshWorkspace);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [activeTab, loadTenantWorkspace, publicSharedLedgerToken, showOnboarding]);
+  }, [publicSharedLedgerToken, runRealtimeWorkspaceSync, showOnboarding]);
 
   const permissionsLoaded = Object.keys(modulePermissions).length > 0;
   const canViewTab = useCallback((tab: string) => {
@@ -305,10 +331,21 @@ export default function App() {
     return { totalSales, receivable, payable, inventoryVal };
   }, [invoices, parties, items]);
 
-  const handleCreateInvoiceShortcut = () => {
+  const handleCreateInvoiceShortcut = useCallback(() => {
     setTargetSalesInvoiceId(null);
     navigateToTab("sales-invoice-create");
-  };
+  }, [navigateToTab]);
+
+  const handleQuickCreate = useCallback((tab: string) => {
+    if (tab === "sales-invoice-create") {
+      handleCreateInvoiceShortcut();
+      return;
+    }
+    if (SALES_REGISTER_VIEWS.includes(tab as SalesRegisterView)) {
+      setSalesRegisterCreateToken(current => current + 1);
+    }
+    navigateToTab(tab);
+  }, [handleCreateInvoiceShortcut, navigateToTab]);
 
   const handleDashboardInvoiceOpen = (invoiceId: string) => {
     setTargetSalesInvoiceId(invoiceId);
@@ -316,7 +353,7 @@ export default function App() {
   };
 
   const saveInvoice = async (checkoutData: {
-    partyId: string;
+    partyId?: string;
     items: InvoiceItem[];
     subtotal: number;
     total: number;
@@ -328,8 +365,9 @@ export default function App() {
     additionalChargeLabel?: string;
     taxAmount?: number;
   }): Promise<SalesInvoice | null> => {
-    const party = parties.find(p => p.id === checkoutData.partyId);
-    if (!party) {
+    const requiresNamedParty = !checkoutData.isPos || Boolean(checkoutData.partyId);
+    const party = checkoutData.partyId ? parties.find(p => p.id === checkoutData.partyId) : null;
+    if (requiresNamedParty && !party) {
       return null;
     }
 
@@ -346,7 +384,7 @@ export default function App() {
   };
 
   const handlePOSCheckout = async (checkoutData: {
-    partyId: string;
+    partyId?: string;
     items: InvoiceItem[];
     subtotal: number;
     total: number;
@@ -359,6 +397,19 @@ export default function App() {
     taxAmount?: number;
   }) => {
     return saveInvoice(checkoutData);
+  };
+
+  const handlePOSCreateItem = async (item: Item): Promise<Item | null> => {
+    try {
+      const created = await createItem(item);
+      await loadTenantWorkspace();
+      setApiError("");
+      return created;
+    } catch (error) {
+      await loadTenantWorkspace({ silent: true });
+      setApiError(error instanceof Error ? error.message : "POS item could not be saved to Postgres");
+      return null;
+    }
   };
 
   const handleAddItemSubmit = async (e: React.FormEvent) => {
@@ -437,15 +488,7 @@ export default function App() {
       ? "detail"
       : "list";
   const isSalesWorkspace = activeTab === "sales-invoices" || activeTab === "sales-invoice-create" || activeTab === "sales-invoice-detail";
-  const salesRegisterViews: SalesRegisterView[] = [
-    "quotation",
-    "payment-in",
-    "sales-return",
-    "credit-note",
-    "delivery-challan",
-    "proforma-invoice"
-  ];
-  const isSalesRegisterWorkspace = salesRegisterViews.includes(activeTab as SalesRegisterView);
+  const isSalesRegisterWorkspace = SALES_REGISTER_VIEWS.includes(activeTab as SalesRegisterView);
   const purchaseViews: PurchaseView[] = [
     "purchases",
     "payment-out",
@@ -470,6 +513,16 @@ export default function App() {
     isSalesWorkspace ||
     isSalesRegisterWorkspace ||
     isPurchaseWorkspace;
+  const realtimeTimeLabel = lastSyncedAt
+    ? new Intl.DateTimeFormat("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(lastSyncedAt))
+    : "pending";
+  const realtimeStatusLabel = realtimeStatus === "live"
+    ? "Live"
+    : realtimeStatus === "syncing"
+      ? "Syncing"
+      : realtimeStatus === "error"
+        ? "Sync issue"
+        : "Connecting";
 
   const handleTenantReady = async () => {
     setShowOnboarding(false);
@@ -539,6 +592,7 @@ export default function App() {
         businessPhone={business.phone}
         modulePermissions={modulePermissions}
         onCreateInvoice={handleCreateInvoiceShortcut}
+        onQuickCreate={handleQuickCreate}
         onLogout={handleLogout}
       />
 
@@ -554,6 +608,17 @@ export default function App() {
             </div>
           )}
 
+          {!isLoadingTenant && (
+            <div
+              className={`workspace-realtime-chip ${realtimeStatus}`}
+              title={realtimeError || `Last backend sync: ${realtimeTimeLabel}`}
+            >
+              <span aria-hidden="true" />
+              <strong>{realtimeStatusLabel}</strong>
+              <em>{realtimeStatus === "error" ? "backend retrying" : `synced ${realtimeTimeLabel}`}</em>
+            </div>
+          )}
+
           {isLoadingTenant && (
             <div className="tenant-loading-card">
               <strong>Loading tenant data</strong>
@@ -565,11 +630,15 @@ export default function App() {
             {activeTab === "dashboard" && (
             <Dashboard
               stats={stats}
+              business={business}
+              businessProfile={settingsData?.businessProfile}
               dashboard={dashboardData}
               invoices={invoices}
               parties={parties}
               transactions={transactions}
-              setActiveTab={navigateToTab}
+              counts={counts}
+              userCount={users.length}
+              onNavigate={navigateToTab}
               onNavigateToInvoice={handleDashboardInvoiceOpen}
               onRefresh={() => loadTenantWorkspace({ silent: true })}
             />
@@ -629,6 +698,8 @@ export default function App() {
               parties={parties}
               invoices={invoices}
               initialRows={salesRows}
+              autoCreateToken={salesRegisterCreateToken}
+              onNavigate={navigateToTab}
               onWorkspaceRefresh={loadTenantWorkspace}
             />
           )}
@@ -692,6 +763,7 @@ export default function App() {
               items={items}
               parties={parties}
               onCheckout={handlePOSCheckout}
+              onCreateItem={handlePOSCreateItem}
               settings={settingsData}
               onExit={() => navigateToTab("dashboard")}
             />

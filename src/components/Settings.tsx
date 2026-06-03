@@ -30,14 +30,20 @@ import {
   Users
 } from "lucide-react";
 import {
+  createReferralInvite,
+  createSupportTicket,
   dispatchDueReminders,
   getActivityFeed,
   getBusinessNotifications,
   getCAReportSharing,
   getPendingNotifications,
+  getReferralInvites,
+  getSupportTickets,
   markAllBusinessNotificationsRead,
   markBusinessNotificationRead,
+  markReferralInviteActivated,
   revokeCAReportSharing,
+  resolveSupportTicket,
   shareCAReports,
   syncBusinessNotifications,
   updateAccountSettings,
@@ -54,8 +60,10 @@ import type {
   NotificationCenterData,
   PendingNotifications,
   ProviderStatus,
+  ReferralInvite,
   SalesInvoice,
-  SettingsData
+  SettingsData,
+  SupportTicket
 } from "../types";
 import { getModulePermission, roleModulePermissions } from "../types";
 
@@ -112,6 +120,31 @@ const emptyCAReportSharing: CAReportSharingData = {
     lastRecipient: ""
   },
   shares: []
+};
+const emptyReferralInviteDraft = {
+  businessName: "",
+  contactName: "",
+  mobile: "",
+  notes: ""
+};
+const emptySupportTicketDraft: {
+  subject: string;
+  category: SupportTicket["category"];
+  channel: SupportTicket["channel"];
+  priority: SupportTicket["priority"];
+  message: string;
+  contactName: string;
+  contactMobile: string;
+  contactEmail: string;
+} = {
+  subject: "",
+  category: "billing",
+  channel: "chat",
+  priority: "medium",
+  message: "",
+  contactName: "",
+  contactMobile: "",
+  contactEmail: ""
 };
 
 const settingsItems: Array<{
@@ -218,6 +251,7 @@ const formatIsoDate = (value: string) => {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 };
+const titleize = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, char => char.toUpperCase());
 
 const latestNotificationTimestamp = (center: NotificationCenterData) => {
   return center.notifications.reduce((latest, notification) => {
@@ -288,6 +322,15 @@ export default function Settings({
   const [caReportSharing, setCAReportSharing] = useState<CAReportSharingData>(emptyCAReportSharing);
   const [isCALoading, setIsCALoading] = useState(false);
   const [isCAPreparing, setIsCAPreparing] = useState(false);
+  const [referralInvites, setReferralInvites] = useState<ReferralInvite[]>([]);
+  const [referralDraft, setReferralDraft] = useState(emptyReferralInviteDraft);
+  const [isReferralLoading, setIsReferralLoading] = useState(false);
+  const [isReferralSaving, setIsReferralSaving] = useState(false);
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
+  const [supportTicketDraft, setSupportTicketDraft] = useState(emptySupportTicketDraft);
+  const [supportStatusFilter, setSupportStatusFilter] = useState<SupportTicket["status"] | "all">("all");
+  const [isSupportLoading, setIsSupportLoading] = useState(false);
+  const [isSupportSaving, setIsSupportSaving] = useState(false);
   const notificationCursorRef = useRef(new Date().toISOString());
 
   useEffect(() => {
@@ -295,6 +338,12 @@ export default function Settings({
     setBusinessDraft(source.businessProfile);
     setInvoiceDraft(source.invoice);
     setReminderDraft(source.reminders);
+    setSupportTicketDraft(current => ({
+      ...current,
+      contactName: current.contactName || source.account.name || source.businessProfile.name,
+      contactMobile: current.contactMobile || source.account.mobile || source.businessProfile.phone,
+      contactEmail: current.contactEmail || source.account.email || source.businessProfile.email
+    }));
   }, [source]);
 
   const resetDrafts = () => {
@@ -448,6 +497,127 @@ export default function Settings({
     }
   }, []);
 
+  const refreshReferralInvites = useCallback(async () => {
+    setIsReferralLoading(true);
+    try {
+      const data = await getReferralInvites();
+      setReferralInvites(data);
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Referral history could not be loaded"
+      });
+    } finally {
+      setIsReferralLoading(false);
+    }
+  }, []);
+
+  const createInvite = useCallback(async () => {
+    if (!canWriteSettings) {
+      setNotice({ kind: "error", text: "Your role can view referrals but cannot create invites." });
+      return;
+    }
+    setIsReferralSaving(true);
+    setNotice(null);
+    try {
+      const invite = await createReferralInvite(referralDraft);
+      await refreshReferralInvites();
+      setReferralDraft(emptyReferralInviteDraft);
+      setNotice({ kind: "success", text: `${invite.businessName} invited with referral code ${invite.referralCode}.` });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Referral invite could not be created"
+      });
+    } finally {
+      setIsReferralSaving(false);
+    }
+  }, [canWriteSettings, referralDraft, refreshReferralInvites]);
+
+  const activateInvite = useCallback(async (invite: ReferralInvite) => {
+    if (!canWriteSettings) {
+      setNotice({ kind: "error", text: "Your role can view referrals but cannot update invites." });
+      return;
+    }
+    setIsReferralSaving(true);
+    setNotice(null);
+    try {
+      const updated = await markReferralInviteActivated(invite.id);
+      setReferralInvites(current => current.map(row => row.id === updated.id ? updated : row));
+      setNotice({ kind: "success", text: `${updated.businessName} marked activated. Reward: ${updated.rewardLabel}.` });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Referral invite could not be updated"
+      });
+    } finally {
+      setIsReferralSaving(false);
+    }
+  }, [canWriteSettings]);
+
+  const refreshSupportTickets = useCallback(async (nextStatus = supportStatusFilter) => {
+    setIsSupportLoading(true);
+    try {
+      const data = await getSupportTickets(nextStatus);
+      setSupportTickets(data);
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Support tickets could not be loaded"
+      });
+    } finally {
+      setIsSupportLoading(false);
+    }
+  }, [supportStatusFilter]);
+
+  const createTicket = useCallback(async () => {
+    if (!canWriteSettings) {
+      setNotice({ kind: "error", text: "Your role can view support tickets but cannot create tickets." });
+      return;
+    }
+    setIsSupportSaving(true);
+    setNotice(null);
+    try {
+      const ticket = await createSupportTicket(supportTicketDraft);
+      await refreshSupportTickets();
+      setSupportTicketDraft({
+        ...emptySupportTicketDraft,
+        contactName: supportTicketDraft.contactName,
+        contactMobile: supportTicketDraft.contactMobile,
+        contactEmail: supportTicketDraft.contactEmail
+      });
+      setNotice({ kind: "success", text: `${ticket.ticketNumber} opened for ${ticket.subject}.` });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Support ticket could not be created"
+      });
+    } finally {
+      setIsSupportSaving(false);
+    }
+  }, [canWriteSettings, refreshSupportTickets, supportTicketDraft]);
+
+  const resolveTicket = useCallback(async (ticket: SupportTicket) => {
+    if (!canWriteSettings) {
+      setNotice({ kind: "error", text: "Your role can view support tickets but cannot resolve tickets." });
+      return;
+    }
+    setIsSupportSaving(true);
+    setNotice(null);
+    try {
+      const updated = await resolveSupportTicket(ticket.id);
+      setSupportTickets(current => current.map(row => row.id === updated.id ? updated : row));
+      setNotice({ kind: "success", text: `${updated.ticketNumber} marked resolved.` });
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Support ticket could not be resolved"
+      });
+    } finally {
+      setIsSupportSaving(false);
+    }
+  }, [canWriteSettings]);
+
   const prepareCAReportBundle = useCallback(async () => {
     if (!canWriteSettings) {
       setNotice({ kind: "error", text: "Your role can view CA reports but cannot prepare access." });
@@ -565,6 +735,18 @@ export default function Settings({
       void refreshCAReportSharing();
     }
   }, [refreshCAReportSharing, view]);
+
+  useEffect(() => {
+    if (view === "refer") {
+      void refreshReferralInvites();
+    }
+  }, [refreshReferralInvites, view]);
+
+  useEffect(() => {
+    if (view === "help") {
+      void refreshSupportTickets();
+    }
+  }, [refreshSupportTickets, view]);
 
   useEffect(() => {
     if (view === "reminders") {
@@ -792,8 +974,34 @@ export default function Settings({
             />
           )}
           {view === "pricing" && <PricingSettings business={businessDraft} />}
-          {view === "refer" && <ReferEarnSettings business={businessDraft} />}
-          {view === "help" && <HelpSupportSettings business={businessDraft} />}
+          {view === "refer" && (
+            <ReferEarnSettings
+              business={businessDraft}
+              invites={referralInvites}
+              draft={referralDraft}
+              onDraftChange={setReferralDraft}
+              onRefresh={refreshReferralInvites}
+              onCreateInvite={createInvite}
+              onActivateInvite={activateInvite}
+              isLoading={isReferralLoading}
+              isSaving={isReferralSaving}
+            />
+          )}
+          {view === "help" && (
+            <HelpSupportSettings
+              business={businessDraft}
+              tickets={supportTickets}
+              draft={supportTicketDraft}
+              statusFilter={supportStatusFilter}
+              onDraftChange={setSupportTicketDraft}
+              onStatusFilterChange={setSupportStatusFilter}
+              onRefresh={() => void refreshSupportTickets()}
+              onCreateTicket={createTicket}
+              onResolveTicket={resolveTicket}
+              isLoading={isSupportLoading}
+              isSaving={isSupportSaving}
+            />
+          )}
         </fieldset>
       </main>
     </div>
@@ -906,6 +1114,7 @@ function AccountSettings({
 const providerStatusRows = (providerStatus: Partial<Record<string, ProviderStatus>>) => {
   const labels: Array<[string, string]> = [
     ["eInvoice", "E-Invoicing"],
+    ["eWayBill", "E-Way Bill"],
     ["sms", "SMS OTP"],
     ["email", "Email"],
     ["paymentGateway", "Payment Gateway"],
@@ -1952,10 +2161,36 @@ function PricingSettings({ business }: { business: SettingsData["businessProfile
   );
 }
 
-function ReferEarnSettings({ business }: { business: SettingsData["businessProfile"] }) {
+function ReferEarnSettings({
+  business,
+  invites,
+  draft,
+  onDraftChange,
+  onRefresh,
+  onCreateInvite,
+  onActivateInvite,
+  isLoading,
+  isSaving
+}: {
+  business: SettingsData["businessProfile"];
+  invites: ReferralInvite[];
+  draft: typeof emptyReferralInviteDraft;
+  onDraftChange: (draft: typeof emptyReferralInviteDraft) => void;
+  onRefresh: () => void;
+  onCreateInvite: () => void;
+  onActivateInvite: (invite: ReferralInvite) => void;
+  isLoading: boolean;
+  isSaving: boolean;
+}) {
+  const rewardCount = invites.filter(invite => ["activated", "rewarded"].includes(invite.status)).length;
+
   return (
     <>
       <SettingsHeader title="Refer & Earn" subtitle="Invite nearby businesses and earn subscription rewards">
+        <button className="settings-save-btn" onClick={onRefresh} disabled={isLoading} type="button">
+          <RefreshCw size={15} />
+          Refresh
+        </button>
         <button className="settings-purple-btn" type="button">
           <Share2 size={15} />
           Share Invite
@@ -1965,10 +2200,42 @@ function ReferEarnSettings({ business }: { business: SettingsData["businessProfi
         <div>
           <Gift size={46} />
           <h2>Share this billing system with another textile business</h2>
-          <p>Referral code and rewards are stored against the active tenant.</p>
+          <p>{invites.length} invites sent from this tenant. {rewardCount} rewards are activated.</p>
         </div>
         <strong>{business.referralCode || "Not configured"}</strong>
-        <button type="button" disabled={!business.referralCode}>Copy Referral Code</button>
+        <button
+          type="button"
+          disabled={!business.referralCode}
+          onClick={() => void navigator.clipboard?.writeText(business.referralCode)}
+        >
+          Copy Referral Code
+        </button>
+      </section>
+      <section className="settings-form-section">
+        <h2>Create Referral Invite</h2>
+        <div className="settings-form-grid three">
+          <label>
+            <span>Business Name</span>
+            <input value={draft.businessName} onChange={event => onDraftChange({ ...draft, businessName: event.target.value })} />
+          </label>
+          <label>
+            <span>Contact Name</span>
+            <input value={draft.contactName} onChange={event => onDraftChange({ ...draft, contactName: event.target.value })} />
+          </label>
+          <label>
+            <span>Mobile Number</span>
+            <input inputMode="numeric" value={draft.mobile} onChange={event => onDraftChange({ ...draft, mobile: event.target.value })} />
+          </label>
+          <label className="settings-wide-label">
+            <span>Notes</span>
+            <textarea value={draft.notes} onChange={event => onDraftChange({ ...draft, notes: event.target.value })} />
+          </label>
+          <div className="settings-inline-form settings-referral-submit">
+            <button type="button" onClick={onCreateInvite} disabled={isSaving || !draft.businessName.trim() || !draft.mobile.trim()}>
+              {isSaving ? "Saving..." : "Send Invite"}
+            </button>
+          </div>
+        </div>
       </section>
       <section className="settings-form-section">
         <h2>Referral History</h2>
@@ -1977,7 +2244,30 @@ function ReferEarnSettings({ business }: { business: SettingsData["businessProfi
             <tr><th>Business</th><th>Mobile</th><th>Status</th><th>Reward</th></tr>
           </thead>
           <tbody>
-            <tr><td colSpan={4}>No referral rewards recorded for this tenant yet.</td></tr>
+            {isLoading ? (
+              <tr><td colSpan={4}>Loading referral invites...</td></tr>
+            ) : invites.length === 0 ? (
+              <tr><td colSpan={4}>No referral rewards recorded for this tenant yet.</td></tr>
+            ) : (
+              invites.map(invite => (
+                <tr key={invite.id}>
+                  <td>
+                    <strong>{invite.businessName}</strong>
+                    {invite.contactName && <span>{invite.contactName}</span>}
+                  </td>
+                  <td>{invite.mobile}</td>
+                  <td><span className={`settings-ca-status ${invite.status}`}>{titleize(invite.status)}</span></td>
+                  <td>
+                    {invite.rewardLabel || "Pending"}
+                    {invite.status === "invited" && (
+                      <button className="settings-link-btn" onClick={() => onActivateInvite(invite)} disabled={isSaving} type="button">
+                        Mark Activated
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </section>
@@ -1985,10 +2275,38 @@ function ReferEarnSettings({ business }: { business: SettingsData["businessProfi
   );
 }
 
-function HelpSupportSettings({ business }: { business: SettingsData["businessProfile"] }) {
+function HelpSupportSettings({
+  business,
+  tickets,
+  draft,
+  statusFilter,
+  onDraftChange,
+  onStatusFilterChange,
+  onRefresh,
+  onCreateTicket,
+  onResolveTicket,
+  isLoading,
+  isSaving
+}: {
+  business: SettingsData["businessProfile"];
+  tickets: SupportTicket[];
+  draft: typeof emptySupportTicketDraft;
+  statusFilter: SupportTicket["status"] | "all";
+  onDraftChange: (draft: typeof emptySupportTicketDraft) => void;
+  onStatusFilterChange: (status: SupportTicket["status"] | "all") => void;
+  onRefresh: () => void;
+  onCreateTicket: () => void;
+  onResolveTicket: (ticket: SupportTicket) => void;
+  isLoading: boolean;
+  isSaving: boolean;
+}) {
   return (
     <>
       <SettingsHeader title="Help And Support" subtitle="Get quick support for billing, reports and subscription">
+        <button className="settings-save-btn" onClick={onRefresh} disabled={isLoading} type="button">
+          <RefreshCw size={15} />
+          Refresh
+        </button>
         <button className="settings-purple-btn" type="button">
           <MessageCircle size={15} />
           Start Chat
@@ -2014,6 +2332,106 @@ function HelpSupportSettings({ business }: { business: SettingsData["businessPro
           <b>{business.supportEmail || "Not configured"}</b>
         </section>
       </div>
+      <section className="settings-form-section">
+        <h2>Create Support Ticket</h2>
+        <div className="settings-form-grid three">
+          <label>
+            <span>Subject</span>
+            <input value={draft.subject} onChange={event => onDraftChange({ ...draft, subject: event.target.value })} />
+          </label>
+          <label>
+            <span>Category</span>
+            <select value={draft.category} onChange={event => onDraftChange({ ...draft, category: event.target.value as SupportTicket["category"] })}>
+              <option value="billing">Billing</option>
+              <option value="reports">Reports</option>
+              <option value="subscription">Subscription</option>
+              <option value="technical">Technical</option>
+              <option value="account">Account</option>
+            </select>
+          </label>
+          <label>
+            <span>Priority</span>
+            <select value={draft.priority} onChange={event => onDraftChange({ ...draft, priority: event.target.value as SupportTicket["priority"] })}>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </label>
+          <label>
+            <span>Channel</span>
+            <select value={draft.channel} onChange={event => onDraftChange({ ...draft, channel: event.target.value as SupportTicket["channel"] })}>
+              <option value="chat">Chat</option>
+              <option value="call">Call</option>
+              <option value="email">Email</option>
+            </select>
+          </label>
+          <label>
+            <span>Contact Mobile</span>
+            <input value={draft.contactMobile} onChange={event => onDraftChange({ ...draft, contactMobile: event.target.value })} />
+          </label>
+          <label>
+            <span>Contact Email</span>
+            <input type="email" value={draft.contactEmail} onChange={event => onDraftChange({ ...draft, contactEmail: event.target.value })} />
+          </label>
+          <label className="settings-wide-label">
+            <span>Issue Details</span>
+            <textarea value={draft.message} onChange={event => onDraftChange({ ...draft, message: event.target.value })} />
+          </label>
+          <div className="settings-inline-form settings-referral-submit">
+            <button type="button" onClick={onCreateTicket} disabled={isSaving || !draft.subject.trim() || draft.message.trim().length < 10}>
+              {isSaving ? "Opening..." : "Open Ticket"}
+            </button>
+          </div>
+        </div>
+      </section>
+      <section className="settings-form-section">
+        <div className="settings-ca-section-title">
+          <h2>Support Ticket History</h2>
+          <label className="sales-filter-btn">
+            <span>Status</span>
+            <select value={statusFilter} onChange={event => onStatusFilterChange(event.target.value as SupportTicket["status"] | "all")}>
+              <option value="all">All</option>
+              <option value="open">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </select>
+          </label>
+        </div>
+        <table className="settings-simple-table settings-support-table">
+          <thead>
+            <tr><th>Ticket</th><th>Category</th><th>Priority</th><th>Status</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <tr><td colSpan={5}>Loading support tickets...</td></tr>
+            ) : tickets.length === 0 ? (
+              <tr><td colSpan={5}>No support tickets opened for this tenant yet.</td></tr>
+            ) : (
+              tickets.map(ticket => (
+                <tr key={ticket.id}>
+                  <td>
+                    <strong>{ticket.ticketNumber}</strong>
+                    <span>{ticket.subject}</span>
+                  </td>
+                  <td>{titleize(ticket.category)}</td>
+                  <td>{titleize(ticket.priority)}</td>
+                  <td><span className={`settings-ca-status ${ticket.status}`}>{titleize(ticket.status)}</span></td>
+                  <td>
+                    {["open", "in_progress"].includes(ticket.status) ? (
+                      <button className="settings-link-btn" onClick={() => onResolveTicket(ticket)} disabled={isSaving} type="button">
+                        Resolve
+                      </button>
+                    ) : (
+                      ticket.resolvedAt || ticket.createdAt
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
       <section className="settings-form-section">
         <h2>Popular Help Topics</h2>
         <div className="settings-list-panel">

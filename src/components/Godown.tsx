@@ -218,6 +218,18 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
     0
   );
   const activeGodownCount = warehouseList.length;
+  const selectedTransferItem = items.find(entry => entry.id === transferDraft.itemId);
+  const selectedTransferRow = stockRows.find(row => row.id === transferDraft.itemId);
+  const transferSourceQty = selectedTransferRow?.allocations[transferDraft.from] ?? 0;
+  const transferSourceName = warehouseList.find(godown => godown.id === transferDraft.from)?.name ?? "source godown";
+  const transferDestinationName = warehouseList.find(godown => godown.id === transferDraft.to)?.name ?? "destination godown";
+  const canSubmitTransfer =
+    Boolean(selectedTransferItem) &&
+    Boolean(transferDraft.from) &&
+    Boolean(transferDraft.to) &&
+    transferDraft.from !== transferDraft.to &&
+    transferDraft.quantity > 0 &&
+    transferDraft.quantity <= transferSourceQty;
 
   const refreshGodownWorkspace = async () => {
     await onWorkspaceRefresh?.();
@@ -320,24 +332,48 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
     }
   };
 
-  const openTransferForItem = (item: Item) => {
-    setOpenStockMenuId(null);
-    const destination = warehouseList.find(godown => godown.id !== selectedGodownId) ?? warehouseList[0];
+  const getStockSourceId = (row: StockRow | undefined, preferredGodownId = selectedGodownId) => {
+    if (preferredGodownId && (row?.allocations[preferredGodownId] ?? 0) > 0) {
+      return preferredGodownId;
+    }
+
+    return Object.entries(row?.allocations ?? {}).find(([, quantity]) => quantity > 0)?.[0]
+      || preferredGodownId
+      || row?.godownId
+      || warehouseList[0]?.id
+      || "";
+  };
+
+  const openTransferModal = (item?: Item) => {
+    const row = item
+      ? stockRows.find(entry => entry.id === item.id)
+      : stockRows.find(entry => Object.values(entry.allocations).some(quantity => quantity > 0)) ?? stockRows[0];
+    const stockSourceId = getStockSourceId(row);
+    const destination = warehouseList.find(godown => godown.id !== stockSourceId) ?? warehouseList[0];
     setTransferDraft(current => ({
       ...current,
-      itemId: item.id,
-      from: selectedGodownId || item.godownId || warehouseList[0]?.id || "",
+      itemId: row?.id || item?.id || items[0]?.id || "",
+      from: stockSourceId,
       to: destination?.id || "",
       quantity: 1,
-      notes: `Transfer ${item.name}`
+      notes: row?.name || item?.name ? `Transfer ${row?.name || item?.name}` : ""
     }));
     setShowTransfer(true);
+  };
+
+  const openTransferForItem = (item: Item) => {
+    setOpenStockMenuId(null);
+    openTransferModal(item);
   };
 
   const handleTransfer = async () => {
     const item = items.find(entry => entry.id === transferDraft.itemId);
     if (!item || !transferDraft.from || !transferDraft.to || transferDraft.from === transferDraft.to) {
       setErrorMessage("Choose an item and two different godowns.");
+      return;
+    }
+    if (transferDraft.quantity > transferSourceQty) {
+      setErrorMessage(`Only ${transferSourceQty} PCS available in ${transferSourceName}.`);
       return;
     }
 
@@ -540,7 +576,7 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
                 <ClipboardList size={18} />
                 {isLoadingLedger ? "Loading" : "Refresh"}
               </button>
-              <button className="mbb-primary-btn" disabled={warehouseList.length < 2 || !items.length} onClick={() => setShowTransfer(true)} type="button">
+              <button className="mbb-primary-btn" disabled={warehouseList.length < 2 || !items.length} onClick={() => openTransferModal()} type="button">
                 Transfer Stock
               </button>
             </div>
@@ -756,6 +792,7 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
               <input
                 type="number"
                 min="1"
+                max={Math.max(1, transferSourceQty)}
                 value={transferDraft.quantity}
                 onChange={event => setTransferDraft({ ...transferDraft, quantity: Math.max(1, Number(event.target.value) || 1) })}
               />
@@ -776,10 +813,23 @@ export default function Godown({ godowns, items, onNavigate, onWorkspaceRefresh 
               <span>Notes</span>
               <input value={transferDraft.notes} onChange={event => setTransferDraft({ ...transferDraft, notes: event.target.value })} placeholder="Optional transfer note" />
             </label>
+            <div className="godown-transfer-preview godown-modal-wide">
+              <span>Available in {transferSourceName}</span>
+              <strong>{transferSourceQty} PCS</strong>
+              <small>
+                {transferDraft.from === transferDraft.to
+                  ? "Choose two different godowns."
+                  : transferSourceQty <= 0
+                    ? "No stock is available in this source godown."
+                    : transferDraft.quantity > transferSourceQty
+                      ? `Reduce quantity to ${transferSourceQty} PCS or less.`
+                      : `${transferDraft.quantity} PCS will move to ${transferDestinationName}.`}
+              </small>
+            </div>
           </div>
           <div className="godown-modal-footer">
             <button className="mbb-cancel-btn" disabled={isSaving} onClick={() => setShowTransfer(false)} type="button">Cancel</button>
-            <button className="mbb-save-btn" disabled={isSaving} onClick={handleTransfer} type="button">
+            <button className="mbb-save-btn" disabled={isSaving || !canSubmitTransfer} onClick={handleTransfer} type="button">
               {isSaving ? "Posting..." : "Transfer Stock"}
             </button>
           </div>

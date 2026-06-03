@@ -9,14 +9,14 @@ import {
   Search,
   X
 } from "lucide-react";
-import { getSalesInvoicePrintHtml } from "../api";
+import { getSalesInvoicePrintHtml, updateBusinessSettings } from "../api";
 import type { InvoiceItem, Item, Party, SalesInvoice, SettingsData } from "../types";
 
 interface POSBillingProps {
   items: Item[];
   parties: Party[];
   onCheckout: (invoiceData: {
-    partyId: string;
+    partyId?: string;
     items: InvoiceItem[];
     subtotal: number;
     total: number;
@@ -28,6 +28,7 @@ interface POSBillingProps {
     additionalChargeLabel?: string;
     taxAmount?: number;
   }) => Promise<SalesInvoice | null>;
+  onCreateItem?: (item: Item) => Promise<Item | null>;
   settings?: SettingsData | null;
   onExit?: () => void;
 }
@@ -40,12 +41,56 @@ type PosAdjustmentModal = {
   value: number;
   suffix?: string;
 };
+type QuickItemDraft = {
+  name: string;
+  itemCode: string;
+  category: string;
+  price: number;
+  purchasePrice: number;
+  mrp: number;
+  stock: number;
+  gstRate: number;
+  hsn: string;
+};
+type PosPanel = "settings" | "watch" | null;
+type PosPreferences = {
+  printPreview: boolean;
+  autoPrintAfterSale: boolean;
+  printOriginalDuplicate: boolean;
+};
+const CASH_SALE_PARTY_ID = "__cash_sale__";
 
-export default function POSBilling({ items, parties, onCheckout, settings, onExit }: POSBillingProps) {
-  const [selectedPartyId, setSelectedPartyId] = useState((parties.find(party => party.type === "customer") || parties[0])?.id || "");
+const quickItemDraft = (name = ""): QuickItemDraft => ({
+  name,
+  itemCode: "",
+  category: "POS QUICK ITEMS",
+  price: 0,
+  purchasePrice: 0,
+  mrp: 0,
+  stock: 1,
+  gstRate: 5,
+  hsn: ""
+});
+
+const effectiveItemRate = (item: Item) =>
+  item.activeOffer?.status === "active" && item.activeOffer.offerPrice > 0
+    ? item.activeOffer.offerPrice
+    : item.price;
+
+const defaultPosPreferences: PosPreferences = {
+  printPreview: true,
+  autoPrintAfterSale: false,
+  printOriginalDuplicate: false
+};
+
+export default function POSBilling({ items, parties, onCheckout, onCreateItem, settings, onExit }: POSBillingProps) {
+  const [selectedPartyId, setSelectedPartyId] = useState(CASH_SALE_PARTY_ID);
   const [posItems, setPosItems] = useState<InvoiceItem[]>([]);
+  const [localItems, setLocalItems] = useState<Item[]>(items);
   const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(null);
   const [searchItemQuery, setSearchItemQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [showCategoryMenu, setShowCategoryMenu] = useState(false);
   const [paymentMode, setPaymentMode] = useState("Cash");
   const [receivedAmount, setReceivedAmount] = useState(0);
   const [billDiscount, setBillDiscount] = useState(0);
@@ -54,17 +99,44 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
   const [adjustmentModal, setAdjustmentModal] = useState<PosAdjustmentModal | null>(null);
   const [printPreview, setPrintPreview] = useState<{ title: string; html: string } | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isQuickItemSaving, setIsQuickItemSaving] = useState(false);
+  const [quickItem, setQuickItem] = useState<QuickItemDraft | null>(null);
+  const [posPanel, setPosPanel] = useState<PosPanel>(null);
+  const [posPreferences, setPosPreferences] = useState<PosPreferences>(defaultPosPreferences);
+  const [isPosSettingsSaving, setIsPosSettingsSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const receivedInputRef = useRef<HTMLInputElement>(null);
   const customerSelectRef = useRef<HTMLSelectElement>(null);
   const customerOptions = parties.filter(party => party.type === "customer");
-  const printPreviewEnabled = settings?.businessProfile.printPreview !== false;
-  const autoPrintAfterSale = settings?.businessProfile.autoPrintAfterSale === true;
+  const printPreviewEnabled = posPreferences.printPreview;
+  const autoPrintAfterSale = posPreferences.autoPrintAfterSale;
 
-  const filteredItems = items
+  useEffect(() => {
+    setLocalItems(current => {
+      const incomingIds = new Set(items.map(item => item.id));
+      const localOnly = current.filter(item => !incomingIds.has(item.id));
+      return [...items, ...localOnly];
+    });
+  }, [items]);
+
+  useEffect(() => {
+    setPosPreferences({
+      printPreview: settings?.businessProfile.printPreview !== false,
+      autoPrintAfterSale: settings?.businessProfile.autoPrintAfterSale === true,
+      printOriginalDuplicate: settings?.businessProfile.printOriginalDuplicate === true
+    });
+  }, [settings]);
+
+  const posCategories = useMemo(
+    () => ["all", ...Array.from(new Set(localItems.map(item => item.category || "-"))).sort()],
+    [localItems]
+  );
+
+  const filteredItems = localItems
     .filter(item => {
       const haystack = `${item.name} ${item.itemCode ?? ""} ${item.hsn} ${item.category}`.toLowerCase();
-      return haystack.includes(searchItemQuery.toLowerCase());
+      const matchesCategory = selectedCategory === "all" || item.category === selectedCategory;
+      return matchesCategory && haystack.includes(searchItemQuery.toLowerCase());
     })
     .slice(0, 8);
 
@@ -105,11 +177,73 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
           line.item.id === item.id ? { ...line, quantity: line.quantity + 1 } : line
         );
       }
-      return [...current, { item, quantity: 1, freeQuantity: 0, rate: item.price, discountPct: 0 }];
+      return [...current, { item, quantity: 1, freeQuantity: 0, rate: effectiveItemRate(item), discountPct: 0 }];
     });
     setSelectedLineIndex(current => current ?? posItems.length);
     setSearchItemQuery("");
+    setShowCategoryMenu(false);
     setNotice(`${item.name} added.`);
+  };
+
+  const openQuickItem = () => {
+    if (!onCreateItem) {
+      setNotice("Your role can view POS but cannot create items.");
+      return;
+    }
+    setQuickItem(quickItemDraft(searchItemQuery.trim()));
+  };
+
+  const updateQuickItem = (patch: Partial<QuickItemDraft>) => {
+    setQuickItem(current => current ? { ...current, ...patch } : current);
+  };
+
+  const saveQuickItem = async () => {
+    if (!quickItem || !onCreateItem) return;
+    if (!quickItem.name.trim()) {
+      setNotice("Enter item name before saving.");
+      return;
+    }
+    if (quickItem.price <= 0) {
+      setNotice("Enter selling price before saving the POS item.");
+      return;
+    }
+    if (quickItem.stock < 1) {
+      setNotice("Opening stock must be at least 1 PCS to add it to this POS bill.");
+      return;
+    }
+
+    try {
+      setIsQuickItemSaving(true);
+      const created = await onCreateItem({
+        id: "",
+        name: quickItem.name.trim(),
+        hsn: quickItem.hsn.trim(),
+        itemCode: quickItem.itemCode.trim() || undefined,
+        price: quickItem.price,
+        purchasePrice: quickItem.purchasePrice,
+        mrp: quickItem.mrp || quickItem.price,
+        stock: quickItem.stock,
+        godown: "-",
+        category: quickItem.category.trim() || "POS QUICK ITEMS",
+        gstRate: quickItem.gstRate,
+        color: "",
+        grn: "",
+        onlineStore: true,
+        description: "Created from POS quick item"
+      });
+      if (!created) {
+        setNotice("POS item could not be saved.");
+        return;
+      }
+      setLocalItems(current => [created, ...current.filter(item => item.id !== created.id)]);
+      addItem(created);
+      setQuickItem(null);
+      setNotice(`${created.name} created and added to this POS bill.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "POS item could not be saved.");
+    } finally {
+      setIsQuickItemSaving(false);
+    }
   };
 
   const updateSelectedLine = (patch: Partial<InvoiceItem>) => {
@@ -168,6 +302,11 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
     setSearchItemQuery("");
   };
 
+  const selectCategory = (category: string) => {
+    setSelectedCategory(category);
+    setShowCategoryMenu(false);
+  };
+
   const holdBill = () => {
     if (!posItems.length) {
       setNotice("Add items before holding this bill.");
@@ -176,6 +315,19 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
     setHeldBillCount(count => count + 1);
     resetBill();
     setNotice("Bill held. New billing screen is ready.");
+  };
+
+  const savePosSettings = async () => {
+    try {
+      setIsPosSettingsSaving(true);
+      await updateBusinessSettings(posPreferences);
+      setNotice("POS settings saved for this tenant.");
+      setPosPanel(null);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "POS settings could not be saved.");
+    } finally {
+      setIsPosSettingsSaving(false);
+    }
   };
 
   const saveBill = async (shouldPrint = false) => {
@@ -194,7 +346,7 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
     setNotice("");
     try {
       const invoice = await onCheckout({
-        partyId: selectedPartyId,
+        partyId: selectedPartyId === CASH_SALE_PARTY_ID ? "" : selectedPartyId,
         items: posItems,
         subtotal: totals.subtotal,
         total: totals.total,
@@ -239,7 +391,7 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
       const target = event.target as HTMLElement | null;
       const isTyping = ["INPUT", "SELECT", "TEXTAREA"].includes(target?.tagName || "");
       const isFunctionShortcut = ["F2", "F3", "F4", "F5", "F6", "F7"].includes(event.key);
-      if (isTyping && !isFunctionShortcut && !(event.ctrlKey && ["Escape", "b", "B"].includes(event.key))) {
+      if (isTyping && !isFunctionShortcut && !(event.ctrlKey && ["Escape", "b", "B", "i", "I", "s", "S"].includes(event.key))) {
         return;
       }
       if (event.ctrlKey && event.key === "Escape") {
@@ -249,6 +401,14 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
       if (event.ctrlKey && event.key.toLowerCase() === "b") {
         event.preventDefault();
         holdBill();
+      }
+      if (event.ctrlKey && event.key.toLowerCase() === "i") {
+        event.preventDefault();
+        openQuickItem();
+      }
+      if (event.ctrlKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        setPosPanel("settings");
       }
       if (event.key === "F2") {
         event.preventDefault();
@@ -292,8 +452,8 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
         </button>
         <h1>POS Billing</h1>
         <div className="pos-top-actions">
-          <button type="button"><CirclePlay size={16} /> Watch how to use POS Billing</button>
-          <button type="button">Settings <span>[CTRL + S]</span></button>
+          <button onClick={() => setPosPanel("watch")} type="button"><CirclePlay size={16} /> Watch how to use POS Billing</button>
+          <button onClick={() => setPosPanel("settings")} type="button">Settings <span>[CTRL + S]</span></button>
         </div>
       </header>
 
@@ -309,7 +469,7 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
       <main className="pos-workspace">
         <section className="pos-billing-area">
           <div className="pos-command-row">
-            <button onClick={() => setNotice("Create the item in Inventory first, then scan or search it here.")} type="button">+ New Item <span>[CTRL + I]</span></button>
+            <button onClick={openQuickItem} type="button">+ New Item <span>[CTRL + I]</span></button>
             <button onClick={() => openLineAdjustment("price")} type="button">Change Price <span>[P]</span></button>
             <button onClick={() => openLineAdjustment("quantity")} type="button">Change QTY <span>[Q]</span></button>
             <button onClick={() => openLineAdjustment("discount")} type="button">Change Discount <span>[D]</span></button>
@@ -317,7 +477,30 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
           </div>
 
           <div className="pos-search-row">
-            <button type="button">Category <ChevronDown size={15} /></button>
+            <div className="pos-category-filter">
+              <button
+                className={selectedCategory !== "all" ? "active" : ""}
+                onClick={() => setShowCategoryMenu(current => !current)}
+                type="button"
+              >
+                {selectedCategory === "all" ? "Category" : selectedCategory}
+                <ChevronDown size={15} />
+              </button>
+              {showCategoryMenu && (
+                <div className="pos-category-menu">
+                  {posCategories.map(category => (
+                    <button
+                      className={selectedCategory === category ? "active" : ""}
+                      key={category}
+                      onClick={() => selectCategory(category)}
+                      type="button"
+                    >
+                      {category === "all" ? "All Categories" : category}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <label>
               <Search size={16} />
               <input
@@ -375,10 +558,10 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
                     {item.name}
                     <small>STOCK : {item.stock} PCS &nbsp;&nbsp; PP : {RUPEE} {item.purchasePrice.toLocaleString("en-IN")} / PCS</small>
                   </span>
-                  <strong>{RUPEE} {item.price.toLocaleString("en-IN")}<small>/PCS</small></strong>
+                  <strong>{RUPEE} {effectiveItemRate(item).toLocaleString("en-IN")}<small>/PCS</small></strong>
                 </button>
               ))}
-              <button className="create-item-row" onClick={() => setNotice("Create the item in Inventory first, then return to POS Billing.")} type="button">+ Create Item</button>
+              <button className="create-item-row" onClick={openQuickItem} type="button">+ Create Item</button>
             </div>
 
             {posItems.length === 0 && (
@@ -431,6 +614,7 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
             <label className="pos-customer-picker">
               <Edit3 size={17} />
               <select ref={customerSelectRef} value={selectedPartyId} onChange={event => setSelectedPartyId(event.target.value)} aria-label="POS customer">
+                <option value={CASH_SALE_PARTY_ID}>Cash Sale</option>
                 {(customerOptions.length ? customerOptions : parties).map(party => (
                   <option key={party.id} value={party.id}>{party.name}</option>
                 ))}
@@ -475,6 +659,133 @@ export default function POSBilling({ items, parties, onCheckout, settings, onExi
             <footer>
               <button onClick={() => setAdjustmentModal(null)} type="button">Cancel</button>
               <button onClick={applyAdjustment} type="button">Apply</button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {quickItem && (
+        <div className="pos-modal-backdrop">
+          <div className="pos-adjust-modal pos-quick-item-modal">
+            <div>
+              <strong>Create POS Item</strong>
+              <button aria-label="Close" onClick={() => setQuickItem(null)} type="button">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="pos-quick-item-grid">
+              <label className="wide">
+                <span>Item Name</span>
+                <input autoFocus value={quickItem.name} onChange={event => updateQuickItem({ name: event.target.value })} />
+              </label>
+              <label>
+                <span>Item Code</span>
+                <input value={quickItem.itemCode} onChange={event => updateQuickItem({ itemCode: event.target.value })} />
+              </label>
+              <label>
+                <span>HSN Code</span>
+                <input value={quickItem.hsn} onChange={event => updateQuickItem({ hsn: event.target.value })} />
+              </label>
+              <label>
+                <span>Selling Price</span>
+                <input min="0" type="number" value={quickItem.price || ""} onChange={event => updateQuickItem({ price: Number(event.target.value) || 0 })} />
+              </label>
+              <label>
+                <span>Purchase Price</span>
+                <input min="0" type="number" value={quickItem.purchasePrice || ""} onChange={event => updateQuickItem({ purchasePrice: Number(event.target.value) || 0 })} />
+              </label>
+              <label>
+                <span>MRP</span>
+                <input min="0" type="number" value={quickItem.mrp || ""} onChange={event => updateQuickItem({ mrp: Number(event.target.value) || 0 })} />
+              </label>
+              <label>
+                <span>Opening Stock</span>
+                <input min="0" type="number" value={quickItem.stock} onChange={event => updateQuickItem({ stock: Number(event.target.value) || 0 })} />
+              </label>
+              <label>
+                <span>GST</span>
+                <select value={quickItem.gstRate} onChange={event => updateQuickItem({ gstRate: Number(event.target.value) || 0 })}>
+                  <option value={0}>0%</option>
+                  <option value={5}>5%</option>
+                  <option value={12}>12%</option>
+                  <option value={18}>18%</option>
+                  <option value={28}>28%</option>
+                </select>
+              </label>
+              <label>
+                <span>Category</span>
+                <input value={quickItem.category} onChange={event => updateQuickItem({ category: event.target.value })} />
+              </label>
+            </div>
+            <footer>
+              <button onClick={() => setQuickItem(null)} type="button">Cancel</button>
+              <button onClick={saveQuickItem} disabled={isQuickItemSaving} type="button">
+                {isQuickItemSaving ? "Saving..." : "Save & Add"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {posPanel && (
+        <div className="pos-modal-backdrop">
+          <div className="pos-adjust-modal pos-settings-modal">
+            <div>
+              <strong>{posPanel === "settings" ? "POS Settings" : "POS Billing Walkthrough"}</strong>
+              <button aria-label="Close" onClick={() => setPosPanel(null)} type="button">
+                <X size={16} />
+              </button>
+            </div>
+
+            {posPanel === "settings" ? (
+              <div className="pos-settings-body">
+                <label>
+                  <input
+                    checked={posPreferences.printPreview}
+                    onChange={event => setPosPreferences(current => ({ ...current, printPreview: event.target.checked }))}
+                    type="checkbox"
+                  />
+                  <span>Show print preview before thermal print</span>
+                </label>
+                <label>
+                  <input
+                    checked={posPreferences.autoPrintAfterSale}
+                    onChange={event => setPosPreferences(current => ({ ...current, autoPrintAfterSale: event.target.checked }))}
+                    type="checkbox"
+                  />
+                  <span>Auto print after sale</span>
+                </label>
+                <label>
+                  <input
+                    checked={posPreferences.printOriginalDuplicate}
+                    onChange={event => setPosPreferences(current => ({ ...current, printOriginalDuplicate: event.target.checked }))}
+                    type="checkbox"
+                  />
+                  <span>Print original and duplicate copies</span>
+                </label>
+              </div>
+            ) : (
+              <div className="pos-watch-body">
+                <div className="pos-watch-frame">
+                  <CirclePlay size={44} />
+                  <strong>POS Billing</strong>
+                </div>
+                <div className="pos-watch-steps">
+                  <span>Search or scan</span>
+                  <span>Adjust bill</span>
+                  <span>Receive payment</span>
+                  <span>Save and print</span>
+                </div>
+              </div>
+            )}
+
+            <footer>
+              <button onClick={() => setPosPanel(null)} type="button">Close</button>
+              {posPanel === "settings" && (
+                <button onClick={savePosSettings} disabled={isPosSettingsSaving} type="button">
+                  {isPosSettingsSaving ? "Saving..." : "Save Settings"}
+                </button>
+              )}
             </footer>
           </div>
         </div>
