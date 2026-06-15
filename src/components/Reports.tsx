@@ -659,6 +659,8 @@ function ReportPreview({
   onShare: () => void;
 }) {
   const filterEntries = getReportFilterEntries(report, dateRange);
+  const visualRows = getReportVisualRows(report);
+  const visualMax = Math.max(...visualRows.map(row => row.value), 1);
 
   return (
     <aside className="reports-preview-panel">
@@ -696,6 +698,53 @@ function ReportPreview({
         <strong>{report.metricValue}</strong>
       </div>
 
+      <div className="reports-visual-grid">
+        <section className="reports-visual-card">
+          <header>
+            <strong>Quick Summary</strong>
+            <span>{report.rowCount || report.rows.length} rows</span>
+          </header>
+          <div className="reports-summary-strip">
+            <div>
+              <span>Category</span>
+              <strong>{report.category}</strong>
+            </div>
+            <div>
+              <span>Columns</span>
+              <strong>{report.columns.length}</strong>
+            </div>
+            <div>
+              <span>Generated</span>
+              <strong>{formatGeneratedAt(report.generatedAt)}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="reports-visual-card">
+          <header>
+            <strong>Visual Snapshot</strong>
+            <span>Top rows</span>
+          </header>
+          {visualRows.length > 0 ? (
+            <div className="reports-mini-bars">
+              {visualRows.map(row => (
+                <div key={`${row.label}-${row.value}`} className="reports-mini-bar-row">
+                  <div className="reports-mini-bar-copy">
+                    <strong>{row.label}</strong>
+                    <span>{row.display}</span>
+                  </div>
+                  <div className="reports-mini-bar-track">
+                    <span style={{ width: `${Math.max(12, (row.value / visualMax) * 100)}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="reports-visual-empty">No numeric rows available for chart preview.</div>
+          )}
+        </section>
+      </div>
+
       <div className="reports-preview-table-wrap">
         <table className="reports-preview-table">
           <thead>
@@ -726,6 +775,40 @@ function getReportFilterEntries(report: ReportDefinition, dateRange: string) {
     return [["Date Range", dateRange], ...entries];
   }
   return entries;
+}
+
+function formatGeneratedAt(value?: string) {
+  if (!value) return "Now";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "Now"
+    : date.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+}
+
+function parseNumericCell(cell: string) {
+  const normalized = cell.replace(/[^0-9.-]/g, "");
+  if (!normalized || normalized === "-" || normalized === "." || normalized === "-.") {
+    return null;
+  }
+  const value = Number(normalized);
+  return Number.isFinite(value) ? Math.abs(value) : null;
+}
+
+function getReportVisualRows(report: ReportDefinition) {
+  return report.rows
+    .map(row => {
+      const numericValues = row
+        .map(cell => parseNumericCell(String(cell)))
+        .filter((value): value is number => value !== null);
+      const value = numericValues[0] ?? 0;
+      return {
+        label: String(row[0] || "Row"),
+        value,
+        display: row.find(cell => parseNumericCell(String(cell)) !== null) || "-"
+      };
+    })
+    .filter(row => row.value > 0)
+    .slice(0, 6);
 }
 
 function downloadBlobFile(blob: Blob, filename: string) {

@@ -2,6 +2,8 @@ import React, { lazy, Suspense, useCallback, useEffect, useRef, useState, useMem
 import Sidebar from "./components/Sidebar";
 import Topbar from "./components/Topbar";
 import TenantOnboarding from "./components/TenantOnboarding";
+import LandingPage from "./components/LandingPage";
+import Chatbot from "./components/Chatbot";
 import { clearTenantSession, createItem, createParty, createSalesInvoice, getWorkspace, hasTenantSession } from "./api";
 import type { PurchaseView } from "./components/Purchases";
 import type { SalesRegisterView } from "./components/SalesRegisters";
@@ -119,7 +121,7 @@ const TAB_MODULES: Record<string, string> = {
   "purchase-orders": "purchases",
   reports: "reports",
   "cash-bank": "accounting",
-  "e-invoicing": "sales",
+  "e-invoicing": "accounting",
   "automated-bills": "accounting",
   expenses: "accounting",
   "pos-billing": "sales",
@@ -132,6 +134,7 @@ const TAB_MODULES: Record<string, string> = {
 
 const FALLBACK_TABS = ["dashboard", "items", "parties", "sales-invoices", "purchases", "reports"];
 const WORKSPACE_REALTIME_INTERVAL_MS = 15000;
+const WORKSPACE_PATH = "/app";
 type RealtimeStatus = "connecting" | "live" | "syncing" | "error";
 
 const labelForModule = (moduleKey: string) => moduleKey.replace(/_/g, " ");
@@ -156,16 +159,41 @@ const sharedLedgerTokenFromPath = () => {
   return match ? decodeURIComponent(match[1]) : "";
 };
 
+const resolveWorkspaceTab = () => {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("store")) return "online-orders";
+  const tab = params.get("tab");
+  return tab && TAB_MODULES[tab] ? tab : "dashboard";
+};
+
+const syncWorkspaceHistory = (tab: string, mode: "push" | "replace" = "push") => {
+  const url = new URL(window.location.href);
+  const existingStore = url.searchParams.get("store");
+  url.pathname = WORKSPACE_PATH;
+  url.search = "";
+  url.searchParams.set("tab", tab);
+  if (tab === "online-orders" && existingStore) {
+    url.searchParams.set("store", existingStore);
+  }
+  window.history[mode === "replace" ? "replaceState" : "pushState"](null, "", `${url.pathname}${url.search}`);
+};
+
 export default function App() {
   const [publicSharedLedgerToken, setPublicSharedLedgerToken] = useState(sharedLedgerTokenFromPath);
+  const [showLanding, setShowLanding] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (sharedLedgerTokenFromPath()) return false;
+    if (window.location.pathname === "/register" || window.location.pathname === "/login" || params.has("register")) return false;
+    if (window.location.pathname === WORKSPACE_PATH || params.has("tab") || params.has("store")) return false;
+    return !hasTenantSession();
+  });
   const [showOnboarding, setShowOnboarding] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return window.location.pathname === "/register"
       || window.location.pathname === "/login"
-      || params.has("register")
-      || (!sharedLedgerTokenFromPath() && !hasTenantSession());
+      || params.has("register");
   });
-  const [activeTab, setActiveTab] = useState<string>("dashboard");
+  const [activeTab, setActiveTab] = useState<string>(() => resolveWorkspaceTab());
   const [salesRegisterCreateToken, setSalesRegisterCreateToken] = useState(0);
   const [business, setBusiness] = useState<Business>(initialBusiness);
   const [parties, setParties] = useState<Party[]>(initialParties);
@@ -242,6 +270,8 @@ export default function App() {
         setApiError(message);
         if (shouldOpenOnboarding(message)) {
           clearTenantSession();
+          window.history.replaceState(null, "", "/login");
+          setShowLanding(false);
           setShowOnboarding(true);
         }
       })
@@ -257,6 +287,53 @@ export default function App() {
       loadTenantWorkspace();
     }
   }, [loadTenantWorkspace, publicSharedLedgerToken, showOnboarding]);
+
+  useEffect(() => {
+    if (showLanding || showOnboarding || publicSharedLedgerToken) return;
+    const params = new URLSearchParams(window.location.search);
+    if (window.location.pathname !== WORKSPACE_PATH || params.get("tab") !== activeTab) {
+      syncWorkspaceHistory(activeTab, "replace");
+    }
+  }, [activeTab, publicSharedLedgerToken, showLanding, showOnboarding]);
+
+  useEffect(() => {
+    const syncFromLocation = () => {
+      const sharedLedgerToken = sharedLedgerTokenFromPath();
+      const params = new URLSearchParams(window.location.search);
+      const isAuthRoute = window.location.pathname === "/register"
+        || window.location.pathname === "/login"
+        || params.has("register");
+      const requiresWorkspace = window.location.pathname === WORKSPACE_PATH || params.has("tab") || params.has("store");
+
+      setPublicSharedLedgerToken(sharedLedgerToken);
+
+      if (sharedLedgerToken) {
+        setShowLanding(false);
+        setShowOnboarding(false);
+        return;
+      }
+
+      if (isAuthRoute) {
+        setShowLanding(false);
+        setShowOnboarding(true);
+        return;
+      }
+
+      if (requiresWorkspace || hasTenantSession()) {
+        setShowLanding(false);
+        setShowOnboarding(false);
+        setActiveTab(resolveWorkspaceTab());
+        return;
+      }
+
+      setShowOnboarding(false);
+      setShowLanding(true);
+      setActiveTab("dashboard");
+    };
+
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, []);
 
   const runRealtimeWorkspaceSync = useCallback(() => {
     if (realtimeRequestRef.current) return realtimeRequestRef.current;
@@ -305,9 +382,14 @@ export default function App() {
     return FALLBACK_TABS.find(tab => canViewTab(tab)) || "dashboard";
   }, [canViewTab]);
 
-  const navigateToTab = useCallback((tab: string) => {
+  const navigateToTab = useCallback((tab: string, options: { history?: "push" | "replace" | "none" } = {}) => {
     if (canViewTab(tab)) {
       setActiveTab(tab);
+      setShowLanding(false);
+      setShowOnboarding(false);
+      if (options.history !== "none") {
+        syncWorkspaceHistory(tab, options.history === "replace" ? "replace" : "push");
+      }
       return;
     }
 
@@ -317,9 +399,9 @@ export default function App() {
 
   useEffect(() => {
     if (permissionsLoaded && !canViewTab(activeTab)) {
-      setActiveTab(firstAllowedTab());
+      navigateToTab(firstAllowedTab(), { history: "replace" });
     }
-  }, [activeTab, canViewTab, firstAllowedTab, permissionsLoaded]);
+  }, [activeTab, canViewTab, firstAllowedTab, navigateToTab, permissionsLoaded]);
 
 
   // Calculate high-level stats
@@ -526,7 +608,7 @@ export default function App() {
 
   const handleTenantReady = async () => {
     setShowOnboarding(false);
-    navigateToTab("dashboard");
+    navigateToTab("dashboard", { history: "replace" });
     await loadTenantWorkspace();
   };
 
@@ -554,8 +636,9 @@ export default function App() {
     setApiError("");
     setIsLoadingTenant(false);
     setActiveTab("dashboard");
-    setShowOnboarding(true);
-    window.history.replaceState(null, "", "/login");
+    setShowOnboarding(false);
+    setShowLanding(true);
+    window.history.replaceState(null, "", "/");
   };
 
   if (publicSharedLedgerToken) {
@@ -566,10 +649,24 @@ export default function App() {
           onExit={() => {
             window.history.pushState({}, "", "/");
             setPublicSharedLedgerToken("");
-            navigateToTab("shared-ledger");
+            navigateToTab("shared-ledger", { history: "replace" });
           }}
         />
       </Suspense>
+    );
+  }
+
+  if (showLanding) {
+    return (
+      <LandingPage
+        onNavigate={(path) => {
+          window.history.pushState(null, "", path);
+          if (path === "/login" || path === "/register") {
+            setShowLanding(false);
+            setShowOnboarding(true);
+          }
+        }}
+      />
     );
   }
 
@@ -578,6 +675,11 @@ export default function App() {
       <TenantOnboarding
         initialMode={window.location.pathname === "/register" ? "register" : "login"}
         onReady={handleTenantReady}
+        onBackToLanding={() => {
+          window.history.pushState(null, "", "/");
+          setShowOnboarding(false);
+          setShowLanding(true);
+        }}
       />
     );
   }
@@ -964,6 +1066,16 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Postgres Chatbot Assistant */}
+      <Chatbot
+        invoices={invoices}
+        parties={parties}
+        items={items}
+        accounting={accounting}
+        staff={staff}
+        businessName={business.name}
+      />
 
     </div>
   );

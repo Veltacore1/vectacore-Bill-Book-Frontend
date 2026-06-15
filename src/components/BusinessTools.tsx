@@ -1510,7 +1510,7 @@ function OnlineOrdersView({
   const onlineSales = onlineOrders
     .filter(order => order.dispatchStatus !== "cancelled")
     .reduce((sum, order) => sum + order.totalAmount, 0);
-  const storeLink = `${window.location.origin}/?store=${business.id || "csm-silks"}`;
+  const storeLink = `${window.location.origin}/app?tab=online-orders&store=${encodeURIComponent(business.id || "csm-silks")}`;
   const selectedOrder = onlineOrders.find(order => order.id === selectedOrderId) || null;
   const statusCounts = useMemo(
     () => onlineOrders.reduce<Record<OnlineOrderStatusFilter, number>>(
@@ -1654,9 +1654,9 @@ function OnlineOrdersView({
   const shareStore = async () => {
     try {
       await navigator.clipboard.writeText(storeLink);
-      setNotice(`Store link copied: ${storeLink}`);
+      setNotice(`Online orders link copied: ${storeLink}`);
     } catch {
-      setNotice(`Store link: ${storeLink}`);
+      setNotice(`Online orders link: ${storeLink}`);
     }
   };
 
@@ -1723,11 +1723,11 @@ function OnlineOrdersView({
           <section className="online-store-preview">
             <ShoppingCart size={62} />
             <h2>{business.name || "Business"} Online Store</h2>
-            <p>{sellableItems.length} live catalog items are ready for customer ordering from the tenant inventory.</p>
+            <p>{sellableItems.length} live catalog items are ready for the online orders workspace and internal team sharing.</p>
             <span className="online-store-link-preview">{storeLink}</span>
             <button className="mbb-primary-btn" onClick={shareStore} type="button">
               <Copy size={16} />
-              Share Store Link
+              Share Orders Link
             </button>
           </section>
           <section className="online-orders-panel">
@@ -1855,7 +1855,7 @@ function OnlineOrdersView({
               <div className="business-stat-card active">
                 <span><Store size={16} /> Online Store</span>
                 <strong>Active</strong>
-                <small>Tenant catalog is available</small>
+                <small>Tenant catalog is connected</small>
               </div>
               <div className="business-stat-card">
                 <span>Pending Orders</span>
@@ -1869,11 +1869,11 @@ function OnlineOrdersView({
               </div>
             </div>
             <div className="online-store-share-box">
-              <span>Store Link</span>
+              <span>Online Orders Link</span>
               <strong>{storeLink}</strong>
               <button className="mbb-primary-btn" onClick={shareStore} type="button">
                 <Copy size={16} />
-                Share Store Link
+                Share Orders Link
               </button>
             </div>
             <div className="online-store-checklist">

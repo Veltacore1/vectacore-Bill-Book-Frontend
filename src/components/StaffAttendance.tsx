@@ -7,7 +7,7 @@ interface StaffAttendanceProps {
 }
 
 export default function StaffAttendance({ staffList, onAttendanceChange }: StaffAttendanceProps) {
-  const currentDate = "2026-05-19";
+  const currentDate = new Date().toISOString().split("T")[0];
 
   return (
     <div>

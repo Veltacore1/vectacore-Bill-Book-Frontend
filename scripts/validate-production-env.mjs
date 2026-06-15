@@ -19,12 +19,14 @@ export function validateProductionApiUrl() {
     fail("VITE_API_URL must be an absolute URL.");
   }
 
+  const isHttpAllowed = process.env.ALLOW_HTTP_TESTING === "true";
+
   const localHosts = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
-  if (localHosts.has(parsed.hostname)) {
+  if (localHosts.has(parsed.hostname) && !isHttpAllowed) {
     fail("VITE_API_URL must not point to localhost in production frontend builds.");
   }
 
-  if (parsed.protocol !== "https:") {
+  if (parsed.protocol !== "https:" && !isHttpAllowed) {
     fail("VITE_API_URL must use HTTPS in production frontend builds.");
   }
 

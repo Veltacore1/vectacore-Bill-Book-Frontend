@@ -592,7 +592,7 @@ function EInvoicingView({
   const [statusFilter, setStatusFilter] = useState("all");
   const [registerRows, setRegisterRows] = useState<EInvoiceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [showActivation, setShowActivation] = useState(true);
+  const [showActivation, setShowActivation] = useState(false);
   const [qrPreview, setQrPreview] = useState<{ invoice: EInvoiceRecord; imageUrl: string } | null>(null);
   const workspaceRows = useMemo(() => invoices.map(invoiceToEInvoiceRecord), [invoices]);
   const visibleInvoices = registerRows.length ? registerRows : workspaceRows;

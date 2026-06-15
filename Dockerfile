@@ -8,6 +8,8 @@ RUN npm ci
 COPY . .
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
+ARG ALLOW_HTTP_TESTING
+ENV ALLOW_HTTP_TESTING=$ALLOW_HTTP_TESTING
 RUN npm run verify:prod-env && npm run render:nginx && npm run build
 
 FROM nginx:1.27-alpine

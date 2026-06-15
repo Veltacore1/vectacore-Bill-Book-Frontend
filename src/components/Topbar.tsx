@@ -1,4 +1,3 @@
-
 import {
   Printer,
   HelpCircle,
@@ -13,29 +12,34 @@ interface TopbarProps {
 }
 
 export default function Topbar({ title }: TopbarProps) {
+  const utilityActions = [
+    { label: "Mobile Sync", icon: Smartphone },
+    { label: "Print Settings", icon: Printer },
+    { label: "Refer & Earn", icon: Gift, className: "topbar-icon topbar-icon-accent" },
+    { label: "Help Support", icon: HelpCircle },
+    { label: "Notifications", icon: Bell },
+    { label: "Minimize Window", icon: Minimize2 }
+  ];
+
   return (
     <div className="topbar">
       <div className="topbar-title">{title}</div>
       <div className="topbar-actions">
-        {/* Help & Utility Icons wrapped in spans for HTML title tooltips */}
-        <span className="topbar-icon" title="Mobile Sync" style={{ display: "inline-flex", alignItems: "center" }}>
-          <Smartphone size={16} />
-        </span>
-        <span className="topbar-icon" title="Print Settings" style={{ display: "inline-flex", alignItems: "center" }}>
-          <Printer size={16} />
-        </span>
-        <span className="topbar-icon" title="Refer & Earn" style={{ display: "inline-flex", alignItems: "center", color: "#e53935" }}>
-          <Gift size={16} />
-        </span>
-        <span className="topbar-icon" title="Help Support" style={{ display: "inline-flex", alignItems: "center" }}>
-          <HelpCircle size={16} />
-        </span>
-        <span className="topbar-icon" title="Notifications" style={{ display: "inline-flex", alignItems: "center" }}>
-          <Bell size={16} />
-        </span>
-        <span className="topbar-icon" title="Minimize Window" style={{ display: "inline-flex", alignItems: "center" }}>
-          <Minimize2 size={16} />
-        </span>
+        {utilityActions.map(action => {
+          const Icon = action.icon;
+          return (
+            <button
+              key={action.label}
+              className={action.className || "topbar-icon"}
+              title={`${action.label} coming soon`}
+              aria-label={`${action.label} coming soon`}
+              disabled
+              type="button"
+            >
+              <Icon size={16} />
+            </button>
+          );
+        })}
       </div>
     </div>
   );

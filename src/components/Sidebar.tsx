@@ -23,7 +23,8 @@ import {
   Tags,
   UserCog,
   Users,
-  Warehouse
+  Warehouse,
+  X
 } from "lucide-react";
 import { canUseModule, getModulePermission } from "../types";
 import type { ModulePermissions } from "../types";
@@ -66,11 +67,12 @@ type QuickCreateItem = {
   moduleKey: string;
   action?: "view" | "create" | "manage";
   icon: typeof Users;
+  color: string;
 };
 
 const partyItems: SubItem[] = [
   { id: "parties", label: "All Parties", moduleKey: "parties", icon: Users },
-  { id: "shared-ledger", label: "SharedLedger", moduleKey: "parties", icon: FileText, badge: "New" }
+  { id: "shared-ledger", label: "Shared Ledger", moduleKey: "parties", icon: FileText, badge: "New" }
 ];
 
 const salesItems: SubItem[] = [
@@ -111,78 +113,26 @@ export default function Sidebar({
   onLogout
 }: SidebarProps) {
   const [isCreateMenuOpen, setIsCreateMenuOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [isAccountingExpanded, setIsAccountingExpanded] = useState(true);
+  const [isBusinessExpanded, setIsBusinessExpanded] = useState(true);
   const quickCreateRef = useRef<HTMLDivElement | null>(null);
   const permissionSet = modulePermissions && Object.keys(modulePermissions).length ? modulePermissions : null;
 
   const hasPermission = (moduleKey: string, action: "view" | "create" | "manage" = "view") =>
     permissionSet === null || canUseModule(permissionSet, moduleKey, action);
   const hasAnyView = (moduleKeys: string[]) =>
-    permissionSet === null || moduleKeys.some(moduleKey => getModulePermission(permissionSet, moduleKey).view);
+    permissionSet === null || moduleKeys.some(moduleKey => getModulePermission(permissionSet!, moduleKey).view);
   const canCreateSalesInvoice = hasPermission("sales", "create");
+
   const quickCreateItems: QuickCreateItem[] = [
-    {
-      id: "sales-invoice-create",
-      label: "Sales Invoice",
-      description: "Create bill",
-      tab: "sales-invoice-create",
-      moduleKey: "sales",
-      action: "create",
-      icon: FileText
-    },
-    {
-      id: "quotation",
-      label: "Quotation / Estimate",
-      description: "Send estimate",
-      tab: "quotation",
-      moduleKey: "sales",
-      action: "create",
-      icon: Receipt
-    },
-    {
-      id: "payment-in",
-      label: "Payment In",
-      description: "Record receipt",
-      tab: "payment-in",
-      moduleKey: "payments",
-      action: "create",
-      icon: Landmark
-    },
-    {
-      id: "sales-return",
-      label: "Sales Return",
-      description: "Return voucher",
-      tab: "sales-return",
-      moduleKey: "sales",
-      action: "create",
-      icon: ShoppingBag
-    },
-    {
-      id: "credit-note",
-      label: "Credit Note",
-      description: "Customer credit",
-      tab: "credit-note",
-      moduleKey: "sales",
-      action: "create",
-      icon: FileClock
-    },
-    {
-      id: "delivery-challan",
-      label: "Delivery Challan",
-      description: "Dispatch goods",
-      tab: "delivery-challan",
-      moduleKey: "sales",
-      action: "create",
-      icon: ShoppingCart
-    },
-    {
-      id: "proforma-invoice",
-      label: "Proforma Invoice",
-      description: "Advance bill",
-      tab: "proforma-invoice",
-      moduleKey: "sales",
-      action: "create",
-      icon: Receipt
-    }
+    { id: "sales-invoice-create", label: "Sales Invoice", description: "Create a bill for customer", tab: "sales-invoice-create", moduleKey: "sales", action: "create", icon: FileText, color: "#6366F1" },
+    { id: "quotation", label: "Quotation", description: "Send price estimate", tab: "quotation", moduleKey: "sales", action: "create", icon: Receipt, color: "#0EA5E9" },
+    { id: "payment-in", label: "Payment In", description: "Record cash receipt", tab: "payment-in", moduleKey: "payments", action: "create", icon: Landmark, color: "#10B981" },
+    { id: "sales-return", label: "Sales Return", description: "Process return voucher", tab: "sales-return", moduleKey: "sales", action: "create", icon: ShoppingBag, color: "#F59E0B" },
+    { id: "credit-note", label: "Credit Note", description: "Issue customer credit", tab: "credit-note", moduleKey: "sales", action: "create", icon: FileClock, color: "#EC4899" },
+    { id: "delivery-challan", label: "Delivery Challan", description: "Dispatch goods", tab: "delivery-challan", moduleKey: "sales", action: "create", icon: ShoppingCart, color: "#8B5CF6" },
+    { id: "proforma-invoice", label: "Proforma Invoice", description: "Advance bill", tab: "proforma-invoice", moduleKey: "sales", action: "create", icon: Receipt, color: "#F97316" }
   ];
 
   const navItems: NavItem[] = [
@@ -203,7 +153,7 @@ export default function Sidebar({
   ];
 
   const businessItems: NavItem[] = [
-    { id: "staff-attendance", label: "Staff Attendance & Payroll", icon: CalendarCheck, moduleKey: "staff" },
+    { id: "staff-attendance", label: "Staff & Payroll", icon: CalendarCheck, moduleKey: "staff" },
     { id: "manage-users", label: "Manage Users", icon: UserCog, moduleKey: "users" },
     { id: "online-orders", label: "Online Orders", icon: ShoppingCart, moduleKey: "business_tools" },
     { id: "sms-marketing", label: "SMS Marketing", icon: Megaphone, moduleKey: "business_tools" }
@@ -219,25 +169,18 @@ export default function Sidebar({
   const canViewSettings = hasPermission("settings");
 
   const isPartiesActive = activeTab === "parties" || activeTab === "shared-ledger";
-  const isSalesActive =
-    activeTab.startsWith("sales") || salesItems.some(item => item.id === activeTab);
+  const isSalesActive = activeTab.startsWith("sales") || salesItems.some(item => item.id === activeTab);
   const isPurchasesActive = activeTab === "purchases" || purchaseItems.some(item => item.id === activeTab);
   const isItemsActive = activeTab === "items" || activeTab === "godown";
 
   useEffect(() => {
     if (!isCreateMenuOpen) return;
-
     const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!quickCreateRef.current?.contains(event.target as Node)) {
-        setIsCreateMenuOpen(false);
-      }
+      if (!quickCreateRef.current?.contains(event.target as Node)) setIsCreateMenuOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsCreateMenuOpen(false);
-      }
+      if (event.key === "Escape") setIsCreateMenuOpen(false);
     };
-
     document.addEventListener("mousedown", closeOnOutsideClick);
     document.addEventListener("keydown", closeOnEscape);
     return () => {
@@ -246,47 +189,31 @@ export default function Sidebar({
     };
   }, [isCreateMenuOpen]);
 
-  useEffect(() => {
-    setIsCreateMenuOpen(false);
-  }, [activeTab]);
+  useEffect(() => { setIsCreateMenuOpen(false); }, [activeTab]);
 
-  const handleMainCreateInvoice = () => {
-    setIsCreateMenuOpen(false);
-    onCreateInvoice();
-  };
-
+  const handleMainCreateInvoice = () => { setIsCreateMenuOpen(false); onCreateInvoice(); };
   const handleQuickCreate = (tab: string) => {
     setIsCreateMenuOpen(false);
-    if (tab === "sales-invoice-create") {
-      onCreateInvoice();
-      return;
-    }
+    if (tab === "sales-invoice-create") { onCreateInvoice(); return; }
     (onQuickCreate ?? setActiveTab)(tab);
   };
-
-  const navigateTo = (tab: string) => {
-    setIsCreateMenuOpen(false);
-    setActiveTab(tab);
-  };
+  const navigateTo = (tab: string) => { setIsCreateMenuOpen(false); setActiveTab(tab); };
 
   const renderSubnav = (items: SubItem[], groupClass = "") => (
-    <div className={`sidebar-subnav ${groupClass}`}>
+    <div className={`sb3-subnav ${groupClass}`}>
       {items.map(item => {
         const Icon = item.icon;
-        const active =
-          activeTab === item.id ||
-          (item.id === "sales-invoices" && activeTab.startsWith("sales-invoice"));
-
+        const active = activeTab === item.id || (item.id === "sales-invoices" && activeTab.startsWith("sales-invoice"));
         return (
           <button
             key={item.id}
-            className={`sidebar-subnav-item ${active ? "active" : ""}`}
+            className={`sb3-subnav-item ${active ? "active" : ""}`}
             onClick={() => navigateTo(item.id)}
             type="button"
           >
-            {Icon && <Icon size={18} />}
+            {Icon && <Icon size={15} />}
             <span>{item.label}</span>
-            {item.badge && <b>{item.badge}</b>}
+            {item.badge && <b className="sb3-badge">{item.badge}</b>}
           </button>
         );
       })}
@@ -307,9 +234,9 @@ export default function Sidebar({
       activeTab === item.id;
 
     return (
-      <div key={item.id}>
+      <div key={item.id} className="sb3-nav-item-wrap">
         <button
-          className={`sidebar-nav-item ${isActive ? "active" : ""}`}
+          className={`sb3-nav-item ${isActive ? "active" : ""}`}
           onClick={() => {
             if (itemIsParties) navigateTo("parties");
             else if (itemIsSales) navigateTo("sales-invoices");
@@ -317,36 +244,33 @@ export default function Sidebar({
             else navigateTo(item.id);
           }}
           type="button"
+          title={collapsed ? item.label : undefined}
         >
-          <span className="nav-left">
-            <Icon className="nav-icon" size={18} />
-            <span>{item.label}</span>
+          <span className="sb3-nav-left">
+            <span className="sb3-nav-icon-wrap"><Icon size={18} /></span>
+            {!collapsed && <span className="sb3-nav-label">{item.label}</span>}
           </span>
-          {item.hasArrow && (isActive ? <ChevronDown size={18} /> : <ChevronRight size={18} />)}
+          {item.hasArrow && !collapsed && (isActive ? <ChevronDown size={15} /> : <ChevronRight size={15} />)}
+          {isActive && <span className="sb3-active-pill" />}
         </button>
 
-        {itemIsParties && isPartiesActive && renderSubnav(visiblePartyItems)}
-
-        {itemIsItems && isItemsActive && (
-          <div className="sidebar-subnav">
+        {!collapsed && itemIsParties && isPartiesActive && renderSubnav(visiblePartyItems)}
+        {!collapsed && itemIsItems && isItemsActive && (
+          <div className="sb3-subnav">
             {hasPermission("items") && (
-              <button className={`sidebar-subnav-item ${activeTab === "items" ? "active" : ""}`} onClick={() => navigateTo("items")} type="button">
-                <Package size={18} />
-                <span>Inventory</span>
+              <button className={`sb3-subnav-item ${activeTab === "items" ? "active" : ""}`} onClick={() => navigateTo("items")} type="button">
+                <Package size={15} /><span>Inventory</span>
               </button>
             )}
             {hasPermission("stock") && (
-              <button className={`sidebar-subnav-item ${activeTab === "godown" ? "active" : ""}`} onClick={() => navigateTo("godown")} type="button">
-                <Warehouse size={18} />
-                <span>Godown (Warehouse)</span>
+              <button className={`sb3-subnav-item ${activeTab === "godown" ? "active" : ""}`} onClick={() => navigateTo("godown")} type="button">
+                <Warehouse size={15} /><span>Godown</span>
               </button>
             )}
           </div>
         )}
-
-        {itemIsSales && isSalesActive && renderSubnav(visibleSalesItems, "sales-subnav")}
-
-        {itemIsPurchases && isPurchasesActive && renderSubnav(visiblePurchaseItems, "sales-subnav")}
+        {!collapsed && itemIsSales && isSalesActive && renderSubnav(visibleSalesItems, "sales-subnav")}
+        {!collapsed && itemIsPurchases && isPurchasesActive && renderSubnav(visiblePurchaseItems, "sales-subnav")}
       </div>
     );
   };
@@ -356,134 +280,178 @@ export default function Sidebar({
     return (
       <button
         key={item.id}
-        className={`sidebar-nav-item ${activeTab === item.id ? "active" : ""}`}
+        className={`sb3-nav-item ${activeTab === item.id ? "active" : ""}`}
         onClick={() => navigateTo(item.id)}
         type="button"
+        title={collapsed ? item.label : undefined}
       >
-        <span className="nav-left">
-          <Icon className="nav-icon" size={18} />
-          <span>{item.label}</span>
+        <span className="sb3-nav-left">
+          <span className="sb3-nav-icon-wrap"><Icon size={18} /></span>
+          {!collapsed && <span className="sb3-nav-label">{item.label}</span>}
         </span>
+        {activeTab === item.id && <span className="sb3-active-pill" />}
       </button>
     );
   };
 
   return (
-    <aside className="sidebar" aria-label="Main navigation">
-      <div className="sidebar-brand">
-        <div className="sidebar-brand-logo" aria-hidden="true">
+    <aside className={`sb3 ${collapsed ? "sb3--collapsed" : ""}`} aria-label="Main navigation">
+
+      {/* Brand */}
+      <div className="sb3-brand">
+        <div className="sb3-avatar">
           {initialsForBusiness(businessName)}
+          <span className="sb3-avatar-ring" />
         </div>
-        <div>
-          <div className="sidebar-brand-name">{businessName}</div>
-          <div className="sidebar-brand-phone">{businessPhone}</div>
-        </div>
+        {!collapsed && (
+          <div className="sb3-brand-info">
+            <span className="sb3-brand-name">{businessName}</span>
+            <span className="sb3-brand-phone">{businessPhone}</span>
+          </div>
+        )}
+        <button
+          className="sb3-collapse-btn"
+          onClick={() => setCollapsed(!collapsed)}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <ChevronRight size={14} className={collapsed ? "" : "flipped"} />
+        </button>
       </div>
 
-      <div className="create-invoice-wrap" ref={quickCreateRef}>
-        <div className={`create-invoice-btn ${canCreateSalesInvoice ? "" : "permission-disabled"} ${isCreateMenuOpen ? "menu-open" : ""}`}>
+      {/* Quick Create */}
+      <div className="sb3-create-wrap" ref={quickCreateRef}>
+        <div className={`sb3-create-btn-row ${isCreateMenuOpen ? "open" : ""}`}>
           <button
-            className="create-invoice-main"
+            className="sb3-create-main"
             onClick={handleMainCreateInvoice}
             disabled={!canCreateSalesInvoice}
-            title={canCreateSalesInvoice ? "Create Sales Invoice" : "Your role can view sales but cannot create invoices"}
+            title={canCreateSalesInvoice ? "New Sales Invoice" : "Read-only access"}
             type="button"
           >
-            <span className="btn-main-text">
-              <Plus size={18} />
-              {canCreateSalesInvoice ? "Create Sales Invoice" : "Sales Read Only"}
-            </span>
+            <Plus size={16} />
+            {!collapsed && <span>{canCreateSalesInvoice ? "New Invoice" : "Read Only"}</span>}
           </button>
-          <span className="btn-divider" />
-          <button
-            aria-expanded={isCreateMenuOpen}
-            aria-haspopup="menu"
-            aria-label="Open create menu"
-            className="create-invoice-toggle"
-            disabled={visibleQuickCreateItems.length === 0}
-            onClick={() => setIsCreateMenuOpen(current => !current)}
-            type="button"
-          >
-            <ChevronDown size={18} />
-          </button>
+          {!collapsed && (
+            <button
+              className="sb3-create-toggle"
+              onClick={() => setIsCreateMenuOpen(c => !c)}
+              disabled={visibleQuickCreateItems.length === 0}
+              type="button"
+              aria-expanded={isCreateMenuOpen}
+            >
+              <ChevronDown size={15} />
+            </button>
+          )}
         </div>
 
         {isCreateMenuOpen && visibleQuickCreateItems.length > 0 && (
-          <div className="create-invoice-menu" role="menu" aria-label="Create sales document">
-            <div className="create-invoice-menu-heading">
-              <span>Create</span>
-              <strong>Sales Documents</strong>
+          <div className="sb3-create-menu" role="menu">
+            <div className="sb3-create-menu-head">
+              <span>Quick Create</span>
+              <button onClick={() => setIsCreateMenuOpen(false)} type="button"><X size={14} /></button>
             </div>
-            {visibleQuickCreateItems.map(item => {
-              const Icon = item.icon;
-              return (
-                <button key={item.id} onClick={() => handleQuickCreate(item.tab)} role="menuitem" type="button">
-                  <Icon size={17} />
-                  <span>
-                    <strong>{item.label}</strong>
-                    <small>{item.description}</small>
-                  </span>
-                  <ChevronRight size={16} />
-                </button>
-              );
-            })}
+            <div className="sb3-create-menu-grid">
+              {visibleQuickCreateItems.map(item => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleQuickCreate(item.tab)}
+                    role="menuitem"
+                    type="button"
+                    className="sb3-create-menu-item"
+                    style={{ "--item-color": item.color } as React.CSSProperties}
+                  >
+                    <span className="sb3-qc-icon"><Icon size={16} /></span>
+                    <span className="sb3-qc-text">
+                      <strong>{item.label}</strong>
+                      <small>{item.description}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>
 
-      <nav className="sidebar-nav">
-        <div className="sidebar-section-label">General</div>
+      {/* Navigation */}
+      <nav className="sb3-nav">
+        {!collapsed && <div className="sb3-section-label">General</div>}
         {visibleNavItems.map(renderNavItem)}
 
         {visibleAccountingItems.length > 0 && (
           <>
-            <div className="sidebar-section-label">Accounting Solutions</div>
-            {visibleAccountingItems.map(renderFlatItem)}
+            {!collapsed ? (
+              <button
+                className="sb3-section-label-btn"
+                onClick={() => setIsAccountingExpanded(!isAccountingExpanded)}
+                type="button"
+              >
+                <span>Accounting</span>
+                {isAccountingExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              </button>
+            ) : (
+              <div className="sb3-section-divider" />
+            )}
+            {(!collapsed ? isAccountingExpanded : true) && visibleAccountingItems.map(renderFlatItem)}
           </>
         )}
 
         {visibleBusinessItems.length > 0 && (
           <>
-            <div className="sidebar-section-label">Business Tools</div>
-            {visibleBusinessItems.map(renderFlatItem)}
+            {!collapsed ? (
+              <button
+                className="sb3-section-label-btn"
+                onClick={() => setIsBusinessExpanded(!isBusinessExpanded)}
+                type="button"
+              >
+                <span>Business Tools</span>
+                {isBusinessExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              </button>
+            ) : (
+              <div className="sb3-section-divider" />
+            )}
+            {(!collapsed ? isBusinessExpanded : true) && visibleBusinessItems.map(renderFlatItem)}
           </>
         )}
       </nav>
 
-      <button className="sidebar-scroll-hint" type="button">
-        Scroll for more options
-        <ChevronDown size={14} />
-      </button>
+      {/* Bottom actions */}
+      <div className="sb3-bottom">
+        {canViewSettings && (
+          <button
+            className={`sb3-nav-item sb3-settings ${activeTab === "settings" ? "active" : ""}`}
+            onClick={() => navigateTo("settings")}
+            type="button"
+            title={collapsed ? "Settings" : undefined}
+          >
+            <span className="sb3-nav-left">
+              <span className="sb3-nav-icon-wrap"><Settings size={18} /></span>
+              {!collapsed && <span className="sb3-nav-label">Settings</span>}
+            </span>
+          </button>
+        )}
 
-      {canViewSettings && (
         <button
-          className={`sidebar-nav-item sidebar-settings ${activeTab === "settings" ? "active" : ""}`}
-          onClick={() => navigateTo("settings")}
+          className="sb3-nav-item sb3-logout"
+          onClick={() => { setIsCreateMenuOpen(false); onLogout(); }}
           type="button"
+          title={collapsed ? "Logout" : undefined}
         >
-          <span className="nav-left">
-            <Settings className="nav-icon" size={18} />
-            <span>Settings</span>
+          <span className="sb3-nav-left">
+            <span className="sb3-nav-icon-wrap"><LogOut size={18} /></span>
+            {!collapsed && <span className="sb3-nav-label">Logout</span>}
           </span>
         </button>
-      )}
 
-      <button className="sidebar-nav-item sidebar-logout" onClick={() => {
-        setIsCreateMenuOpen(false);
-        onLogout();
-      }} type="button">
-        <span className="nav-left">
-          <LogOut className="nav-icon" size={18} />
-          <span>Logout</span>
-        </span>
-      </button>
-
-      <div className="sidebar-footer">
-        <span>
-          <Shield size={14} />
-          100% Secure
-        </span>
-        <span>ISO Certified</span>
+        {!collapsed && (
+          <div className="sb3-footer">
+            <span><Shield size={12} /> 100% Secure</span>
+            <span className="sb3-footer-dot" />
+            <span>ISO Certified</span>
+          </div>
+        )}
       </div>
     </aside>
   );

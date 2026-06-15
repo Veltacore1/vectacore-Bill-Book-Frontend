@@ -204,6 +204,26 @@ export default function Dashboard({
       .sort((left, right) => checklistPriorityRank[left.priority] - checklistPriorityRank[right.priority])
   ), [dashboard.checklist]);
   const checklistNeedsAction = checklistRows.filter(item => checklistStatusClass(item.status) !== "clear");
+  const cashCoverage = payable > 0 ? Math.max(0, Math.min(100, (bankBalance / payable) * 100)) : 100;
+  const collectionCoverage = receivable > 0 ? Math.max(0, Math.min(100, (bankBalance / receivable) * 100)) : 100;
+  const stockToSalesRatio = currentStats.totalSales > 0 ? (currentStats.inventoryVal / currentStats.totalSales) * 100 : 0;
+  const businessHealthRows = [
+    {
+      label: "Cash cover vs payable",
+      value: cashCoverage,
+      summary: `${formatMoney(bankBalance, 0)} cash for ${formatMoney(payable, 0)} payable`
+    },
+    {
+      label: "Collections strength",
+      value: collectionCoverage,
+      summary: `${formatMoney(receivable, 0)} pending collection`
+    },
+    {
+      label: "Inventory load",
+      value: Math.max(0, Math.min(100, stockToSalesRatio)),
+      summary: `${formatMoney(currentStats.inventoryVal, 0)} stock value`
+    }
+  ];
 
   const handleTransactionOpen = (tx: TransactionRow) => {
     const type = tx.type.toLowerCase();
@@ -579,6 +599,29 @@ export default function Dashboard({
                     <span>Invoices Made</span>
                     <strong>{trendInvoiceCount}</strong>
                   </div>
+                </div>
+              </section>
+
+              <section className="dashboard-section-card dashboard-health-card">
+                <header>
+                  <span>Business Health</span>
+                  <small>Owner-level visual summary</small>
+                </header>
+                <div className="dashboard-health-grid">
+                  {businessHealthRows.map(row => (
+                    <div key={row.label} className="dashboard-health-row">
+                      <div className="dashboard-health-copy">
+                        <strong>{row.label}</strong>
+                        <span>{row.summary}</span>
+                      </div>
+                      <div className="dashboard-health-meter">
+                        <div className="dashboard-health-track">
+                          <span style={{ width: `${Math.max(10, row.value)}%` }} />
+                        </div>
+                        <b>{Math.round(row.value)}%</b>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </section>
             </div>
