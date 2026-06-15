@@ -1186,13 +1186,13 @@
 .auth3-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
 /* OTP Input */
-.auth3-otp-grid { display: flex; gap: 10px; }
+.auth3-otp-grid { display: flex; gap: 8px; }
 .auth3-otp-box {
   flex: 1;
-  height: 56px;
+  height: 44px;
   text-align: center;
   font-family: var(--v3-display);
-  font-size: 24px;
+  font-size: 18px;
   font-weight: 800;
   color: var(--v3-ink);
   background: var(--v3-white);
