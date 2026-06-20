@@ -3,47 +3,52 @@
    Landing Page (lp3-*), Auth/Onboarding (auth3-*), Sidebar (sb3-*)
    ================================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Syne:wght@700;800&display=swap');
+/* Fonts loaded via index.html (Inter + Syne) */
 
 /* ----------------------------------------------------------------
    TOKENS
    ---------------------------------------------------------------- */
 :root {
-  --v3-indigo:       #d97706; /* Warm Gold */
-  --v3-indigo-dark:  #b45309; /* Deep Bronze */
-  --v3-indigo-light: #f59e0b; /* Light Gold */
-  --v3-purple:       #9a3412; /* Rich Rust */
-  --v3-accent-rgb:   217, 119, 6;
-  --v3-amber:        #ea580c;
-  --v3-amber-light:  #ffedd5;
-  --v3-emerald:      #10b981;
-  --v3-sky:          #e07a5f;
-  --v3-pink:         #c2410c;
-  --v3-ink:          #0F172A;
-  --v3-ink-mid:      #1E293B;
-  --v3-muted:        #64748B;
-  --v3-border:       #E2E8F0;
-  --v3-surface:      #F8FAFC;
-  --v3-white:        #FFFFFF;
-  --v3-card-shadow:  0 4px 24px rgba(15,23,42,0.07), 0 1px 4px rgba(15,23,42,0.05);
-  --v3-glow-shadow:  0 0 40px rgba(var(--v3-accent-rgb), 0.15);
-  --v3-font:         'Inter', system-ui, sans-serif;
-  --v3-display:      'Syne', system-ui, sans-serif;
-  --v3-radius:       14px;
-  --v3-radius-sm:    8px;
-  --v3-radius-lg:    20px;
-  --v3-sidebar-w:    256px;
+  /* Aligned with best CSM luxury fashion heritage palette */
+  --v3-gold:           #b07d2a;
+  --v3-gold-2:         #e6c36a;
+  --v3-bronze:         #8a5c1f;
+  --v3-ruby:           #6f1f2a;
+  --v3-emerald:        #0a4d3f;
+  --v3-ink:            #11100e;
+  --v3-ink-mid:        #1f1c17;
+  --v3-muted:          #6f6356;
+  --v3-border:         #d9cdb9;
+  --v3-surface:        #fffdf7;
+  --v3-white:          #FFFFFF;
+  --v3-card-shadow:    0 4px 24px rgba(17,16,14,0.08), 0 1px 4px rgba(17,16,14,0.05);
+  --v3-glow-shadow:    0 0 42px rgba(176, 125, 42, 0.18);
+  --v3-font:           'Inter', system-ui, sans-serif;
+  --v3-display:        'Syne', system-ui, sans-serif;
+  --v3-radius:         12px;
+  --v3-radius-sm:      8px;
+  --v3-radius-lg:      18px;
+  --v3-sidebar-w:      256px;
   --v3-sidebar-w-collapsed: 72px;
-  --v3-transition:   cubic-bezier(0.4, 0, 0.2, 1);
+  --v3-transition:     cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Override Core Clone View Colors (De-blueing Dashboard/Clone Items View) */
-  --mbb-sidebar:         #121214;
-  --mbb-sidebar-soft:    #18181b;
-  --mbb-sidebar-active:  #27272a;
-  --mbb-primary:         #d97706;
-  --mbb-primary-dark:    #b45309;
-  --mbb-link:            #ea580c;
-  --mbb-row-selected:    #ffedd5;
+  /* Legacy aliases kept for compatibility */
+  --v3-indigo:       #b07d2a;
+  --v3-indigo-dark:  #8a5c1f;
+  --v3-indigo-light: #e6c36a;
+  --v3-purple:       #6f1f2a;
+  --v3-accent-rgb:   176, 125, 42;
+  --v3-amber:        #b07d2a;
+  --v3-amber-light:  #f5d99a;
+
+  /* Billing workspace — refined light luxury (no harsh dark theme) */
+  --mbb-sidebar:         #f5f0e6;
+  --mbb-sidebar-soft:    #ede6d8;
+  --mbb-sidebar-active:  #e4d9c7;
+  --mbb-primary:         #b07d2a;
+  --mbb-primary-dark:    #8a5c1f;
+  --mbb-link:            #b07d2a;
+  --mbb-row-selected:    #f8e9c9;
 }
 
 /* ================================================================
@@ -2377,4 +2382,17 @@
 .cb-input-area button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* Light luxury sidebar adjustments (no dark theme) */
+.dashboard-utility-icons span,
+.dashboard-utility-icons button {
+  background: #fff;
+  border-color: #d8deea;
+  color: #5f6b7f;
+}
+.dashboard-utility-popover {
+  background: #fff;
+  border-color: #d8deea;
+  box-shadow: 0 10px 30px rgba(17, 24, 39, 0.1);
 }

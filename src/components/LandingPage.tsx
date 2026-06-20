@@ -15,43 +15,43 @@ const features = [
     icon: FileText,
     title: "GST Invoicing",
     desc: "Create GST & non-GST invoices with auto-tax, HSN codes, and custom formats in 8 seconds.",
-    color: "#6366F1",
-    glow: "rgba(99,102,241,0.15)"
+    color: "#b07d2a",
+    glow: "rgba(176,125,42,0.15)"
   },
   {
     icon: Package,
     title: "Inventory Management",
     desc: "Track stock in real-time with low-stock alerts, batch tracking, and expiry management.",
-    color: "#0EA5E9",
-    glow: "rgba(14,165,233,0.15)"
+    color: "#0a4d3f",
+    glow: "rgba(10,77,63,0.15)"
   },
   {
     icon: Zap,
     title: "Payment Collection",
     desc: "Send WhatsApp & SMS payment reminders with UPI links and track outstanding dues.",
-    color: "#F59E0B",
-    glow: "rgba(245,158,11,0.15)"
+    color: "#8a5c1f",
+    glow: "rgba(138,92,31,0.15)"
   },
   {
     icon: LayoutDashboard,
     title: "AI Bookkeeping",
     desc: "Keep records accurate with AI bank reconciliation, smart categorisation, and stock updates.",
-    color: "#10B981",
-    glow: "rgba(16,185,129,0.15)"
+    color: "#0f5f4b",
+    glow: "rgba(15,95,75,0.15)"
   },
   {
     icon: Percent,
     title: "Marketing & Loyalty",
     desc: "Launch catalogue, run campaigns, and reward customers with loyalty points.",
-    color: "#EC4899",
-    glow: "rgba(236,72,153,0.15)"
+    color: "#6f1f2a",
+    glow: "rgba(111,31,42,0.15)"
   },
   {
     icon: PieChart,
     title: "Reports & Dashboard",
     desc: "Track cash flow, sales, outstanding payments, and GSTR reports at a glance.",
-    color: "#8B5CF6",
-    glow: "rgba(139,92,246,0.15)"
+    color: "#e6c36a",
+    glow: "rgba(230,195,106,0.2)"
   }
 ];
 
