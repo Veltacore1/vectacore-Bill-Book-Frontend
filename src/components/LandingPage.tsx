@@ -15,43 +15,43 @@ const features = [
     icon: FileText,
     title: "GST Invoicing",
     desc: "Create GST & non-GST invoices with auto-tax, HSN codes, and custom formats in 8 seconds.",
-    color: "#6366F1",
-    glow: "rgba(99,102,241,0.15)"
+    color: "#b07d2a",
+    glow: "rgba(176,125,42,0.15)"
   },
   {
     icon: Package,
     title: "Inventory Management",
     desc: "Track stock in real-time with low-stock alerts, batch tracking, and expiry management.",
-    color: "#0EA5E9",
-    glow: "rgba(14,165,233,0.15)"
+    color: "#0a4d3f",
+    glow: "rgba(10,77,63,0.15)"
   },
   {
     icon: Zap,
     title: "Payment Collection",
     desc: "Send WhatsApp & SMS payment reminders with UPI links and track outstanding dues.",
-    color: "#F59E0B",
-    glow: "rgba(245,158,11,0.15)"
+    color: "#8a5c1f",
+    glow: "rgba(138,92,31,0.15)"
   },
   {
     icon: LayoutDashboard,
     title: "AI Bookkeeping",
     desc: "Keep records accurate with AI bank reconciliation, smart categorisation, and stock updates.",
-    color: "#10B981",
-    glow: "rgba(16,185,129,0.15)"
+    color: "#0f5f4b",
+    glow: "rgba(15,95,75,0.15)"
   },
   {
     icon: Percent,
     title: "Marketing & Loyalty",
     desc: "Launch catalogue, run campaigns, and reward customers with loyalty points.",
-    color: "#EC4899",
-    glow: "rgba(236,72,153,0.15)"
+    color: "#6f1f2a",
+    glow: "rgba(111,31,42,0.15)"
   },
   {
     icon: PieChart,
     title: "Reports & Dashboard",
     desc: "Track cash flow, sales, outstanding payments, and GSTR reports at a glance.",
-    color: "#8B5CF6",
-    glow: "rgba(139,92,246,0.15)"
+    color: "#e6c36a",
+    glow: "rgba(230,195,106,0.2)"
   }
 ];
 
@@ -197,9 +197,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         onMouseMove={handleMouseMove}
       >
         <div className="lp3-hero-grid-bg" />
-        <FloatingOrb style={{ top: "10%", left: "5%", width: 400, height: 400, background: "radial-gradient(circle, rgba(99,102,241,0.18) 0%, transparent 70%)" }} />
-        <FloatingOrb style={{ top: "30%", right: "5%", width: 500, height: 500, background: "radial-gradient(circle, rgba(245,158,11,0.12) 0%, transparent 70%)" }} />
-        <FloatingOrb style={{ bottom: "5%", left: "30%", width: 350, height: 350, background: "radial-gradient(circle, rgba(14,165,233,0.1) 0%, transparent 70%)" }} />
+        <FloatingOrb style={{ top: "10%", left: "5%", width: 400, height: 400, background: "radial-gradient(circle, rgba(176,125,42,0.18) 0%, transparent 70%)" }} />
+        <FloatingOrb style={{ top: "30%", right: "5%", width: 500, height: 500, background: "radial-gradient(circle, rgba(230,195,106,0.14) 0%, transparent 70%)" }} />
+        <FloatingOrb style={{ bottom: "5%", left: "30%", width: 350, height: 350, background: "radial-gradient(circle, rgba(10,77,63,0.12) 0%, transparent 70%)" }} />
         <div
           className="lp3-hero-cursor-glow"
           style={{ left: `${mousePos.x}%`, top: `${mousePos.y}%` }}
@@ -364,7 +364,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
             {testimonials.map((t, i) => (
               <div key={i} className="lp3-testimonial-card">
                 <div className="lp3-testi-stars">
-                  {Array(t.stars).fill(0).map((_, j) => <Star key={j} size={14} fill="#F59E0B" color="#F59E0B" />)}
+                  {Array(t.stars).fill(0).map((_, j) => <Star key={j} size={14} fill="#e6c36a" color="#e6c36a" />)}
                 </div>
                 <p className="lp3-testi-quote">"{t.quote}"</p>
                 <div className="lp3-testi-author">

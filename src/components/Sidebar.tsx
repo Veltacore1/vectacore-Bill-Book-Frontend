@@ -126,13 +126,13 @@ export default function Sidebar({
   const canCreateSalesInvoice = hasPermission("sales", "create");
 
   const quickCreateItems: QuickCreateItem[] = [
-    { id: "sales-invoice-create", label: "Sales Invoice", description: "Create a bill for customer", tab: "sales-invoice-create", moduleKey: "sales", action: "create", icon: FileText, color: "#6366F1" },
-    { id: "quotation", label: "Quotation", description: "Send price estimate", tab: "quotation", moduleKey: "sales", action: "create", icon: Receipt, color: "#0EA5E9" },
-    { id: "payment-in", label: "Payment In", description: "Record cash receipt", tab: "payment-in", moduleKey: "payments", action: "create", icon: Landmark, color: "#10B981" },
-    { id: "sales-return", label: "Sales Return", description: "Process return voucher", tab: "sales-return", moduleKey: "sales", action: "create", icon: ShoppingBag, color: "#F59E0B" },
-    { id: "credit-note", label: "Credit Note", description: "Issue customer credit", tab: "credit-note", moduleKey: "sales", action: "create", icon: FileClock, color: "#EC4899" },
-    { id: "delivery-challan", label: "Delivery Challan", description: "Dispatch goods", tab: "delivery-challan", moduleKey: "sales", action: "create", icon: ShoppingCart, color: "#8B5CF6" },
-    { id: "proforma-invoice", label: "Proforma Invoice", description: "Advance bill", tab: "proforma-invoice", moduleKey: "sales", action: "create", icon: Receipt, color: "#F97316" }
+    { id: "sales-invoice-create", label: "Sales Invoice", description: "Create a bill for customer", tab: "sales-invoice-create", moduleKey: "sales", action: "create", icon: FileText, color: "#b07d2a" },
+    { id: "quotation", label: "Quotation", description: "Send price estimate", tab: "quotation", moduleKey: "sales", action: "create", icon: Receipt, color: "#0a4d3f" },
+    { id: "payment-in", label: "Payment In", description: "Record cash receipt", tab: "payment-in", moduleKey: "payments", action: "create", icon: Landmark, color: "#0f5f4b" },
+    { id: "sales-return", label: "Sales Return", description: "Process return voucher", tab: "sales-return", moduleKey: "sales", action: "create", icon: ShoppingBag, color: "#e6c36a" },
+    { id: "credit-note", label: "Credit Note", description: "Issue customer credit", tab: "credit-note", moduleKey: "sales", action: "create", icon: FileClock, color: "#6f1f2a" },
+    { id: "delivery-challan", label: "Delivery Challan", description: "Dispatch goods", tab: "delivery-challan", moduleKey: "sales", action: "create", icon: ShoppingCart, color: "#8a5c1f" },
+    { id: "proforma-invoice", label: "Proforma Invoice", description: "Advance bill", tab: "proforma-invoice", moduleKey: "sales", action: "create", icon: Receipt, color: "#b07d2a" }
   ];
 
   const navItems: NavItem[] = [
