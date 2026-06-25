@@ -197,9 +197,9 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
         onMouseMove={handleMouseMove}
       >
         <div className="lp3-hero-grid-bg" />
-        <FloatingOrb style={{ top: "10%", left: "5%", width: 400, height: 400, background: "radial-gradient(circle, rgba(99,102,241,0.18) 0%, transparent 70%)" }} />
-        <FloatingOrb style={{ top: "30%", right: "5%", width: 500, height: 500, background: "radial-gradient(circle, rgba(245,158,11,0.12) 0%, transparent 70%)" }} />
-        <FloatingOrb style={{ bottom: "5%", left: "30%", width: 350, height: 350, background: "radial-gradient(circle, rgba(14,165,233,0.1) 0%, transparent 70%)" }} />
+        <FloatingOrb style={{ top: "10%", left: "5%", width: 400, height: 400, background: "radial-gradient(circle, rgba(176,125,42,0.18) 0%, transparent 70%)" }} />
+        <FloatingOrb style={{ top: "30%", right: "5%", width: 500, height: 500, background: "radial-gradient(circle, rgba(230,195,106,0.14) 0%, transparent 70%)" }} />
+        <FloatingOrb style={{ bottom: "5%", left: "30%", width: 350, height: 350, background: "radial-gradient(circle, rgba(10,77,63,0.12) 0%, transparent 70%)" }} />
         <div
           className="lp3-hero-cursor-glow"
           style={{ left: `${mousePos.x}%`, top: `${mousePos.y}%` }}
@@ -364,7 +364,7 @@ export default function LandingPage({ onNavigate }: LandingPageProps) {
             {testimonials.map((t, i) => (
               <div key={i} className="lp3-testimonial-card">
                 <div className="lp3-testi-stars">
-                  {Array(t.stars).fill(0).map((_, j) => <Star key={j} size={14} fill="#F59E0B" color="#F59E0B" />)}
+                  {Array(t.stars).fill(0).map((_, j) => <Star key={j} size={14} fill="#e6c36a" color="#e6c36a" />)}
                 </div>
                 <p className="lp3-testi-quote">"{t.quote}"</p>
                 <div className="lp3-testi-author">
